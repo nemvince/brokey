@@ -1,0 +1,784 @@
+import { and, eq } from "drizzle-orm";
+import type { AppDb } from "../db.ts";
+import {
+  type ClientKeyRow,
+  clientKeys,
+  type ModelRow,
+  models,
+  type ProviderRow,
+  providers,
+  type UsageLogInsert,
+  usageLogs,
+} from "../schema.ts";
+import { authenticateClient } from "../auth.ts";
+import type { LimitWindow } from "../../shared/types.ts";
+import {
+  classifyHttpFailure,
+  markKeyUsed,
+  networkFailure,
+  recordKeyFailure,
+  recordKeySuccess,
+  selectCandidates,
+  upstreamUrl,
+} from "./keys.ts";
+import { checkLimits, remainingHeaders, usageForWindow } from "./limits.ts";
+import { isEventStream, parseEventJson, SseSplitter } from "./streaming.ts";
+import {
+  EMPTY_USAGE,
+  estimateChatPromptTokens,
+  estimateResponsesPromptTokens,
+  estimateTokens,
+  extractCompletionText,
+  extractDeltaText,
+  extractResponsesDeltaText,
+  extractResponsesOutputText,
+  hasUsageChunkOnly,
+  type TokenUsage,
+  usageFromChatJson,
+  usageFromEmbeddingsJson,
+  usageFromResponsesJson,
+} from "./usage.ts";
+
+export type ProxyCtx = { db: AppDb };
+
+const HEADER_TIMEOUT_MS = 120_000;
+const NON_STREAM_TIMEOUT_MS = 120_000;
+
+const HOP_BY_HOP = ["connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"];
+const DROP_REQUEST_HEADERS = ["host", "authorization", "content-length", "accept-encoding"];
+const DROP_RESPONSE_HEADERS = [
+  "content-encoding",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "set-cookie",
+];
+const STRICT_JSON_PREFIXES = ["/v1/chat/completions", "/v1/responses", "/v1/embeddings", "/v1/images/"];
+
+/** Provider keys currently handling a request; used only to de-prioritise them. */
+const busyKeys = new Set<number>();
+
+type EndpointKind = "chat" | "responses" | "embeddings" | "other";
+
+type ProxyErrorType =
+  | "invalid_request_error"
+  | "authentication_error"
+  | "permission_error"
+  | "insufficient_quota"
+  | "rate_limit_error"
+  | "api_error";
+
+type AttemptContext = {
+  db: AppDb;
+  requestId: string;
+  clientKey: ClientKeyRow;
+  provider: ProviderRow;
+  providerKeyId: number;
+  model: ModelRow | null;
+  pathname: string;
+  method: string;
+  kind: EndpointKind;
+  startedAt: number;
+  upstreamLatencyMs: number | null;
+  limitHeaders: Record<string, string>;
+  estimatedPromptTokens: number;
+};
+
+function endpointKind(pathname: string): EndpointKind {
+  if (pathname.startsWith("/v1/chat/completions")) return "chat";
+  if (pathname.startsWith("/v1/responses")) return "responses";
+  if (pathname.startsWith("/v1/embeddings")) return "embeddings";
+  return "other";
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record: Record<string, unknown> = value as Record<string, unknown>;
+  return record;
+}
+
+function jsonError(
+  status: number,
+  message: string,
+  type: ProxyErrorType,
+  code: string | null = null,
+  headers?: HeadersInit,
+): Response {
+  return Response.json({ error: { message, type, param: null, code } }, { status, headers });
+}
+
+function modelNotFound(publicId: string): Response {
+  return jsonError(
+    404,
+    `The model '${publicId}' does not exist or you do not have access to it.`,
+    "invalid_request_error",
+    "model_not_found",
+  );
+}
+
+function forwardHeaders(upstream: HeadersInit): Headers {
+  const headers = new Headers();
+  new Headers(upstream).forEach((value, name) => {
+    if (!DROP_RESPONSE_HEADERS.includes(name.toLowerCase())) headers.set(name, value);
+  });
+  return headers;
+}
+
+function decorate(headers: Headers, requestId: string, limitHeaders: Record<string, string>): Headers {
+  headers.set("x-brokey-request-id", requestId);
+  for (const [name, value] of Object.entries(limitHeaders)) headers.set(name, value);
+  return headers;
+}
+
+function buildUpstreamHeaders(req: Request, secret: string, extra: Record<string, string> | null): Headers {
+  const headers = new Headers();
+  req.headers.forEach((value, name) => {
+    const lower = name.toLowerCase();
+    if (HOP_BY_HOP.includes(lower) || DROP_REQUEST_HEADERS.includes(lower)) return;
+    if (lower.startsWith("proxy-") || lower.startsWith("x-brokey-")) return;
+    headers.set(name, value);
+  });
+  headers.set("authorization", `Bearer ${secret}`);
+  if (extra) {
+    for (const [name, value] of Object.entries(extra)) headers.set(name, value);
+  }
+  return headers;
+}
+
+function parseExtraHeaders(raw: string | null): Record<string, string> | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const record = objectValue(parsed);
+    if (!record) return null;
+    const out: Record<string, string> = {};
+    for (const [name, value] of Object.entries(record)) {
+      if (typeof value === "string") out[name] = value;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function estimatePromptTokens(kind: EndpointKind, payload: Record<string, unknown> | null): number {
+  if (!payload) return 0;
+  if (kind === "chat") return estimateChatPromptTokens(payload.messages);
+  if (kind === "responses") return estimateResponsesPromptTokens(payload.input);
+  return 0;
+}
+
+function listModelCatalog(db: AppDb): Response {
+  const rows = db
+    .select({ model: models, providerName: providers.name })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id))
+    .where(and(eq(models.enabled, true), eq(models.upstreamAvailable, true), eq(providers.enabled, true)))
+    .all();
+  const data = rows.map(({ model, providerName }) => ({
+    id: model.publicId,
+    object: "model" as const,
+    created: Math.floor((model.upstreamCreatedAt ?? model.createdAt) / 1000),
+    owned_by: providerName,
+  }));
+  return Response.json({ object: "list", data });
+}
+
+function getModelCatalog(db: AppDb, publicId: string): Response {
+  const rows = db
+    .select({ model: models, providerName: providers.name })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id))
+    .where(
+      and(
+        eq(models.publicId, publicId),
+        eq(models.enabled, true),
+        eq(models.upstreamAvailable, true),
+        eq(providers.enabled, true),
+      ),
+    )
+    .all();
+  const row = rows[0];
+  if (!row) return modelNotFound(publicId);
+  return Response.json({
+    id: row.model.publicId,
+    object: "model",
+    created: Math.floor((row.model.upstreamCreatedAt ?? row.model.createdAt) / 1000),
+    owned_by: row.providerName,
+  });
+}
+
+function writeUsageLog(db: AppDb, values: UsageLogInsert): void {
+  db.insert(usageLogs).values(values).run();
+}
+
+function logFor(
+  ctx: AttemptContext,
+  extra: {
+    streamed: boolean;
+    status: number;
+    errorCode: string | null;
+    usage: TokenUsage;
+    estimated: boolean;
+  },
+): UsageLogInsert {
+  return {
+    requestId: ctx.requestId,
+    clientKeyId: ctx.clientKey.id,
+    clientKeyLabel: ctx.clientKey.name,
+    providerId: ctx.provider.id,
+    providerName: ctx.provider.name,
+    providerKeyId: ctx.providerKeyId,
+    modelId: ctx.model?.id ?? null,
+    modelPublicId: ctx.model?.publicId ?? "",
+    endpoint: ctx.pathname,
+    method: ctx.method,
+    streamed: extra.streamed,
+    status: extra.status,
+    errorCode: extra.errorCode,
+    promptTokens: extra.usage.promptTokens,
+    completionTokens: extra.usage.completionTokens,
+    totalTokens: extra.usage.totalTokens,
+    estimated: extra.estimated,
+    latencyMs: Date.now() - ctx.startedAt,
+    upstreamLatencyMs: ctx.upstreamLatencyMs,
+    createdAt: Date.now(),
+  };
+}
+
+function resolveUsage(
+  kind: EndpointKind,
+  observed: TokenUsage | null,
+  promptEstimate: number,
+  completionText: string,
+): { usage: TokenUsage; estimated: boolean } {
+  if (observed) return { usage: observed, estimated: false };
+  if (kind !== "chat" && kind !== "responses") return { usage: EMPTY_USAGE, estimated: false };
+  const completionTokens = estimateTokens(completionText);
+  return {
+    usage: {
+      promptTokens: promptEstimate,
+      completionTokens,
+      totalTokens: promptEstimate + completionTokens,
+    },
+    estimated: true,
+  };
+}
+
+export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response> {
+  const db = ctx.db;
+  const startedAt = Date.now();
+  const requestId = `req_${crypto.randomUUID().replaceAll("-", "")}`;
+  const url = new URL(req.url);
+  const pathname = url.pathname;
+
+  const auth = authenticateClient(req, db);
+  if (!auth.ok) return auth.response;
+  const clientKey = auth.key;
+  db.update(clientKeys).set({ lastUsedAt: startedAt }).where(eq(clientKeys.id, clientKey.id)).run();
+
+  if (req.method === "GET" && pathname === "/v1/models") return listModelCatalog(db);
+  if (req.method === "GET" && pathname.startsWith("/v1/models/")) {
+    return getModelCatalog(db, decodeURIComponent(pathname.slice("/v1/models/".length)));
+  }
+
+  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  const rawBody = hasBody ? new Uint8Array(await req.arrayBuffer()) : null;
+  const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
+
+  let payload: Record<string, unknown> | null = null;
+  if (rawBody && contentType.includes("application/json")) {
+    try {
+      payload = objectValue(JSON.parse(new TextDecoder().decode(rawBody)));
+    } catch {
+      if (STRICT_JSON_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+        return jsonError(400, "We could not parse the JSON body of your request.", "invalid_request_error");
+      }
+    }
+  }
+
+  let model: ModelRow | null = null;
+  let provider: ProviderRow | null = null;
+  const requestedModel = payload && typeof payload.model === "string" ? payload.model : null;
+
+  if (requestedModel) {
+    const row = db.select().from(models).where(eq(models.publicId, requestedModel)).get();
+    if (!row || !row.enabled || !row.upstreamAvailable) return modelNotFound(requestedModel);
+    const providerRow = db.select().from(providers).where(eq(providers.id, row.providerId)).get();
+    if (!providerRow) return modelNotFound(requestedModel);
+    if (!providerRow.enabled) {
+      return jsonError(503, `Provider "${providerRow.name}" is disabled.`, "api_error", "provider_unavailable");
+    }
+    model = row;
+    provider = providerRow;
+  } else {
+    const selector = (req.headers.get("x-brokey-provider") ?? url.searchParams.get("provider") ?? "").trim();
+    if (selector !== "") {
+      const providerRow = db.select().from(providers).where(eq(providers.name, selector)).get();
+      if (!providerRow) {
+        return jsonError(400, `Unknown provider "${selector}".`, "invalid_request_error", "invalid_provider");
+      }
+      if (!providerRow.enabled) {
+        return jsonError(503, `Provider "${providerRow.name}" is disabled.`, "api_error", "provider_unavailable");
+      }
+      provider = providerRow;
+    } else {
+      const enabledProviders = db.select().from(providers).where(eq(providers.enabled, true)).all();
+      if (enabledProviders.length !== 1) {
+        return jsonError(
+          400,
+          "Select a provider with the `x-brokey-provider` header or the `?provider=` query parameter, or send a request whose model routes to a provider.",
+          "invalid_request_error",
+          "missing_provider",
+        );
+      }
+      provider = enabledProviders[0] as ProviderRow;
+    }
+  }
+
+  const kind = endpointKind(pathname);
+  const estimatedPromptTokens = estimatePromptTokens(kind, payload);
+
+  const windowUsage = usageForWindow(db, clientKey.id, clientKey.limitWindow as LimitWindow, startedAt);
+  const violation = checkLimits(clientKey, windowUsage);
+  if (violation) {
+    return jsonError(429, violation.message, "insufficient_quota", "usage_limit_exceeded");
+  }
+  const limitHeaders = remainingHeaders(clientKey, windowUsage, estimatedPromptTokens);
+
+  const pool = selectCandidates(db, provider.id, startedAt, busyKeys);
+  if (!pool.hasEnabledKeys) {
+    return jsonError(
+      503,
+      `No enabled API keys for provider "${provider.name}".`,
+      "api_error",
+      "provider_unavailable",
+    );
+  }
+  if (pool.candidates.length === 0) {
+    const waitSeconds = pool.earliestCooldown
+      ? Math.max(1, Math.ceil((pool.earliestCooldown - startedAt) / 1000))
+      : 60;
+    return jsonError(
+      429,
+      "All API keys for this provider are temporarily unavailable.",
+      "rate_limit_error",
+      "all_keys_exhausted",
+      { "retry-after": String(waitSeconds) },
+    );
+  }
+
+  // Body after optional model rewriting; the version without `stream_options` is
+  // kept for the fallback retry when an upstream rejects the injected option.
+  const bodyBase = payload && model
+    ? new TextEncoder().encode(JSON.stringify({ ...payload, model: model.upstreamId }))
+    : rawBody;
+  const requestPayload = payload && model ? { ...payload, model: model.upstreamId } : payload;
+  const streamingRequest = kind === "chat" && req.method === "POST" && requestPayload?.stream === true;
+
+  let injectedUsage = false;
+  let clientWantedUsage = false;
+  if (streamingRequest && requestPayload) {
+    const options = objectValue(requestPayload.stream_options);
+    if (options?.include_usage === true) {
+      clientWantedUsage = true;
+    } else {
+      requestPayload.stream_options = { ...(options ?? {}), include_usage: true };
+      injectedUsage = true;
+    }
+  }
+  const bodyWithInjection = injectedUsage
+    ? new TextEncoder().encode(JSON.stringify(requestPayload))
+    : bodyBase;
+
+  const upstream = upstreamUrl(provider.baseUrl, pathname, url.search);
+  const extraHeaders = parseExtraHeaders(provider.extraHeaders);
+
+  let lastFailure: { status: number; body: string; code: string; headers: Headers } | null = null;
+  let lastMessage = "";
+  let cooledAny = false;
+  let upstreamLatencyMs: number | null = null;
+
+  for (const key of pool.candidates) {
+    busyKeys.add(key.id);
+    const attemptCtx: AttemptContext = {
+      db,
+      requestId,
+      clientKey,
+      provider,
+      providerKeyId: key.id,
+      model,
+      pathname,
+      method: req.method,
+      kind,
+      startedAt,
+      upstreamLatencyMs: null,
+      limitHeaders,
+      estimatedPromptTokens,
+    };
+    try {
+      markKeyUsed(db, key.id, Date.now());
+      const headers = buildUpstreamHeaders(req, key.secret, extraHeaders);
+      const controller = new AbortController();
+      let headerTimer: ReturnType<typeof setTimeout> | undefined;
+      const signal = streamingRequest
+        ? AbortSignal.any([controller.signal, req.signal])
+        : AbortSignal.any([AbortSignal.timeout(NON_STREAM_TIMEOUT_MS), req.signal]);
+      if (streamingRequest) headerTimer = setTimeout(() => controller.abort(), HEADER_TIMEOUT_MS);
+
+      const attemptStarted = Date.now();
+      let response: Response;
+      try {
+        response = await fetch(upstream, {
+          method: req.method,
+          headers,
+          body: bodyWithInjection ?? undefined,
+          signal,
+          redirect: "manual",
+        });
+      } catch (error) {
+        clearTimeout(headerTimer);
+        if (req.signal.aborted) {
+          writeUsageLog(
+            db,
+            logFor(attemptCtx, {
+              streamed: streamingRequest,
+              status: 499,
+              errorCode: "client_aborted",
+              usage: {
+                ...EMPTY_USAGE,
+                promptTokens: estimatedPromptTokens,
+                totalTokens: estimatedPromptTokens,
+              },
+              estimated: true,
+            }),
+          );
+          return jsonError(499, "Client closed request.", "api_error", "client_aborted");
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        lastMessage = `Upstream request failed: ${message}`;
+        recordKeyFailure(db, key.id, networkFailure(), lastMessage);
+        cooledAny = true;
+        continue;
+      }
+      clearTimeout(headerTimer);
+      if (upstreamLatencyMs === null) upstreamLatencyMs = Date.now() - attemptStarted;
+
+      attemptCtx.upstreamLatencyMs = upstreamLatencyMs;
+
+      // Some upstreams reject `stream_options`; retry once with the original body.
+      if (!response.ok && injectedUsage && response.status === 400) {
+        await response.body?.cancel().catch(() => undefined);
+        try {
+          response = await fetch(upstream, {
+            method: req.method,
+            headers,
+            body: bodyBase ?? undefined,
+            signal: AbortSignal.any([AbortSignal.timeout(HEADER_TIMEOUT_MS), req.signal]),
+            redirect: "manual",
+          });
+          injectedUsage = false;
+          clientWantedUsage = false;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          lastMessage = `Upstream request failed: ${message}`;
+          recordKeyFailure(db, key.id, networkFailure(), lastMessage);
+          cooledAny = true;
+          continue;
+        }
+      }
+
+      if (!response.ok) {
+        const text = await response
+          .clone()
+          .text()
+          .catch(() => "");
+        const failure = classifyHttpFailure(response.status, text, response.headers.get("retry-after"));
+        if (failure.retryable) {
+          recordKeyFailure(db, key.id, failure, `HTTP ${response.status}: ${text.slice(0, 400)}`);
+          cooledAny = true;
+          lastFailure = { status: response.status, body: text, code: failure.errorCode, headers: response.headers };
+          continue;
+        }
+        recordKeySuccess(db, key.id);
+        const bytes = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
+        writeUsageLog(
+          db,
+          logFor(attemptCtx, {
+            streamed: streamingRequest,
+            status: response.status,
+            errorCode: `http_${response.status}`,
+            usage: EMPTY_USAGE,
+            estimated: false,
+          }),
+        );
+        return new Response(bytes, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: decorate(forwardHeaders(response.headers), requestId, limitHeaders),
+        });
+      }
+
+      recordKeySuccess(db, key.id);
+
+      if (streamingRequest && response.body) {
+        return streamResponse(response, attemptCtx, {
+          injectedUsage,
+          clientWantedUsage,
+          streaming: true,
+        });
+      }
+
+      let bytes: ArrayBuffer;
+      try {
+        bytes = await response.arrayBuffer();
+      } catch (error) {
+        const aborted = req.signal.aborted;
+        const message = error instanceof Error ? error.message : String(error);
+        writeUsageLog(
+          db,
+          logFor(attemptCtx, {
+            streamed: false,
+            status: aborted ? 499 : 504,
+            errorCode: aborted ? "client_aborted" : "timeout",
+            usage: {
+              ...EMPTY_USAGE,
+              promptTokens: estimatedPromptTokens,
+              totalTokens: estimatedPromptTokens,
+            },
+            estimated: true,
+          }),
+        );
+        if (aborted) return jsonError(499, "Client closed request.", "api_error", "client_aborted");
+        return jsonError(504, `Upstream response failed: ${message}`, "api_error", "timeout");
+      }
+
+      const parsed = parseJsonBytes(bytes);
+      const observed = observedUsage(kind, parsed);
+      const completionText =
+        kind === "chat"
+          ? extractCompletionText(parsed)
+          : kind === "responses"
+            ? extractResponsesOutputText(parsed)
+            : "";
+      const resolved = resolveUsage(kind, observed, estimatedPromptTokens, completionText);
+      writeUsageLog(
+        db,
+        logFor(attemptCtx, {
+          streamed: false,
+          status: response.status,
+          errorCode: null,
+          usage: resolved.usage,
+          estimated: resolved.estimated,
+        }),
+      );
+      return new Response(bytes, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: decorate(forwardHeaders(response.headers), requestId, limitHeaders),
+      });
+    } finally {
+      busyKeys.delete(key.id);
+    }
+  }
+
+  return allKeysFailed(db, {
+    requestId,
+    clientKey,
+    provider,
+    model,
+    pathname,
+    method: req.method,
+    streaming: streamingRequest,
+    startedAt,
+    upstreamLatencyMs,
+    limitHeaders,
+    lastFailure,
+    lastMessage,
+    cooledAny,
+  });
+}
+
+function parseJsonBytes(bytes: ArrayBuffer): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function observedUsage(kind: EndpointKind, parsed: unknown): TokenUsage | null {
+  if (kind === "chat") return usageFromChatJson(parsed);
+  if (kind === "responses") return usageFromResponsesJson(parsed);
+  if (kind === "embeddings") return usageFromEmbeddingsJson(parsed);
+  return null;
+}
+
+type StreamOptions = { injectedUsage: boolean; clientWantedUsage: boolean; streaming: boolean };
+
+function streamResponse(response: Response, ctx: AttemptContext, options: StreamOptions): Response {
+  const sse = isEventStream(response.headers.get("content-type"));
+  const reader = response.body!.getReader();
+  const splitter = new SseSplitter();
+  const encoder = new TextEncoder();
+  let observed: TokenUsage | null = null;
+  let text = "";
+  let logged = false;
+
+  const record = (status: number, errorCode: string | null) => {
+    if (logged) return;
+    logged = true;
+    const resolved = resolveUsage(ctx.kind, observed, ctx.estimatedPromptTokens, text);
+    writeUsageLog(
+      ctx.db,
+      logFor(ctx, {
+        streamed: true,
+        status,
+        errorCode,
+        usage: resolved.usage,
+        estimated: resolved.estimated,
+      }),
+    );
+  };
+
+  const collect = (chunk: unknown) => {
+    if (!chunk) return;
+    if (ctx.kind === "chat") {
+      observed ??= usageFromChatJson(chunk);
+      text += extractDeltaText(chunk);
+      return;
+    }
+    if (ctx.kind === "responses") {
+      observed ??= usageFromResponsesJson(chunk);
+      text += extractResponsesDeltaText(chunk);
+    }
+  };
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!sse) {
+            controller.enqueue(value);
+            continue;
+          }
+          for (const frame of splitter.push(value)) {
+            const chunk = parseEventJson(frame.raw);
+            collect(chunk);
+            const drop =
+              options.injectedUsage && !options.clientWantedUsage && hasUsageChunkOnly(chunk);
+            if (!drop) controller.enqueue(encoder.encode(frame.raw + frame.separator));
+          }
+        }
+        if (sse) {
+          for (const frame of splitter.flush()) {
+            const chunk = parseEventJson(frame.raw);
+            collect(chunk);
+            const drop =
+              options.injectedUsage && !options.clientWantedUsage && hasUsageChunkOnly(chunk);
+            if (!drop) controller.enqueue(encoder.encode(frame.raw + frame.separator));
+          }
+        }
+        controller.close();
+        record(response.status, null);
+      } catch (error) {
+        const aborted = isAbort(error);
+        record(aborted ? 499 : 502, aborted ? "client_aborted" : "stream_error");
+        try {
+          controller.error(error);
+        } catch {
+          // the consumer is already gone
+        }
+      }
+    },
+    cancel() {
+      reader.cancel().catch(() => undefined);
+      record(499, "client_aborted");
+    },
+  });
+
+  return new Response(stream, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: decorate(forwardHeaders(response.headers), ctx.requestId, ctx.limitHeaders),
+  });
+}
+
+function isAbort(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("name" in error && error.name === "AbortError") return true;
+  if ("message" in error && typeof error.message === "string") {
+    return error.message.includes("aborted") || error.message.includes("closed");
+  }
+  return false;
+}
+
+type FailedAttemptSummary = {
+  requestId: string;
+  clientKey: ClientKeyRow;
+  provider: ProviderRow;
+  model: ModelRow | null;
+  pathname: string;
+  method: string;
+  streaming: boolean;
+  startedAt: number;
+  upstreamLatencyMs: number | null;
+  limitHeaders: Record<string, string>;
+  lastFailure: { status: number; body: string; code: string; headers: Headers } | null;
+  lastMessage: string;
+  cooledAny: boolean;
+};
+
+function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
+  const fallbackStatus = summary.cooledAny ? 429 : 502;
+  const status = summary.lastFailure?.status ?? fallbackStatus;
+  const errorCode = summary.lastFailure?.code ?? (summary.cooledAny ? "all_keys_exhausted" : "upstream_unavailable");
+
+  writeUsageLog(db, {
+    requestId: summary.requestId,
+    clientKeyId: summary.clientKey.id,
+    clientKeyLabel: summary.clientKey.name,
+    providerId: summary.provider.id,
+    providerName: summary.provider.name,
+    providerKeyId: null,
+    modelId: summary.model?.id ?? null,
+    modelPublicId: summary.model?.publicId ?? "",
+    endpoint: summary.pathname,
+    method: summary.method,
+    streamed: summary.streaming,
+    status,
+    errorCode,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    estimated: false,
+    latencyMs: Date.now() - summary.startedAt,
+    upstreamLatencyMs: summary.upstreamLatencyMs,
+    createdAt: Date.now(),
+  });
+
+  if (summary.lastFailure) {
+    return new Response(summary.lastFailure.body, {
+      status: summary.lastFailure.status,
+      headers: decorate(forwardHeaders(summary.lastFailure.headers), summary.requestId, summary.limitHeaders),
+    });
+  }
+  if (summary.cooledAny) {
+    return jsonError(
+      429,
+      "All API keys for this provider are temporarily unavailable.",
+      "rate_limit_error",
+      "all_keys_exhausted",
+      { "retry-after": "60", ...summary.limitHeaders, "x-brokey-request-id": summary.requestId },
+    );
+  }
+  return jsonError(
+    502,
+    summary.lastMessage || "Upstream is unreachable.",
+    "api_error",
+    "upstream_unavailable",
+    { ...summary.limitHeaders, "x-brokey-request-id": summary.requestId },
+  );
+}
