@@ -28,6 +28,7 @@ import {
   updateClientKey,
 } from "./client-keys.ts";
 import { listUsage } from "./usage.ts";
+import { invalidateStatsCache } from "../stats.ts";
 
 type Handler = (ctx: AdminCtx) => Response | Promise<Response>;
 
@@ -156,7 +157,9 @@ export async function handleAdmin(
       now: Date.now(),
     };
     try {
-      return await route.handler(ctx);
+      const response = await route.handler(ctx);
+      if (req.method !== "GET" && response.ok) invalidateStatsCache();
+      return response;
     } catch (error) {
       return toResponse(error);
     }

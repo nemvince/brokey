@@ -10,6 +10,18 @@ const RANGE_MS: Record<Exclude<StatsRange, "all">, number> = {
 };
 
 const RANGES: readonly StatsRange[] = ["24h", "7d", "30d", "all"];
+
+/**
+ * The dashboard polls every 30s, so a few seconds of caching keeps the public
+ * endpoint from being a cheap way to saturate SQLite with aggregates.
+ */
+const CACHE_TTL_MS = 5_000;
+
+let cache: { key: string; at: number; payload: StatsResponse } | null = null;
+
+export function invalidateStatsCache(): void {
+  cache = null;
+}
 const BREAKDOWN_LIMIT = 10;
 const RECENT_LIMIT = 20;
 
@@ -28,6 +40,21 @@ export function handleStats(
   const range: StatsRange = RANGES.includes(requested as StatsRange)
     ? (requested as StatsRange)
     : "30d";
+
+  // New log rows bump `max(id)`; admin mutations call `invalidateStatsCache`
+  // because they change snapshot labels and key prefixes.
+  const logMarker = Number(
+    db
+      .select({ max: sql<number>`coalesce(max(${usageLogs.id}), 0)` })
+      .from(usageLogs)
+      .get()?.max ?? 0,
+  );
+  const cacheKey = `${range}:${logMarker}`;
+  if (cache && cache.key === cacheKey && now - cache.at < CACHE_TTL_MS) {
+    return Response.json(cache.payload, {
+      headers: { "cache-control": "no-store" },
+    });
+  }
 
   const rangeStart = range === "all" ? null : now - RANGE_MS[range];
   const rangeWhere =
@@ -197,6 +224,7 @@ export function handleStats(
     })),
   };
 
+  cache = { key: cacheKey, at: now, payload };
   return Response.json(payload, { headers: { "cache-control": "no-store" } });
 }
 

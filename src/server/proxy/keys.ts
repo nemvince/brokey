@@ -7,7 +7,6 @@ export const MAX_KEY_ATTEMPTS = 10;
 
 const COOLDOWN_401 = 86_400;
 const COOLDOWN_402 = 86_400;
-const COOLDOWN_403 = 3_600;
 const COOLDOWN_QUOTA = 3_600;
 const COOLDOWN_RATE_LIMIT_DEFAULT = 60;
 const COOLDOWN_NETWORK = 15;
@@ -188,13 +187,6 @@ export function classifyHttpFailure(
       errorCode: "payment_required",
     };
   }
-  if (status === 403) {
-    return {
-      retryable: true,
-      cooldownSeconds: COOLDOWN_403,
-      errorCode: "forbidden",
-    };
-  }
   if (status === 429) {
     if (bodyText.includes("insufficient_quota")) {
       return {
@@ -218,6 +210,19 @@ export function networkFailure(): KeyFailure {
     cooldownSeconds: COOLDOWN_NETWORK,
     errorCode: "network_error",
   };
+}
+
+/**
+ * Strips a provider credential out of upstream text before it is stored in
+ * `provider_keys.last_error` or returned to a client. Some upstreams echo the
+ * Authorization header in their error bodies ("Incorrect API key provided: sk-…").
+ */
+export function redactSecret(text: string, secret: string): string {
+  if (secret.length < 8) return text;
+  const encoded = encodeURIComponent(secret);
+  let out = text.split(secret).join("[redacted]");
+  if (encoded !== secret) out = out.split(encoded).join("[redacted]");
+  return out;
 }
 
 export function upstreamUrl(

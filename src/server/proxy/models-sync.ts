@@ -17,12 +17,14 @@ import {
   networkFailure,
   recordKeyFailure,
   recordKeySuccess,
+  redactSecret,
   selectCandidates,
   upstreamUrl,
 } from "./keys.ts";
 
 const PUBLIC_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const FETCH_TIMEOUT_MS = 20_000;
+const MAX_MODELS_BODY_BYTES = 8 * 1024 * 1024;
 
 export type UpstreamModel = {
   id: string;
@@ -152,7 +154,20 @@ export async function fetchUpstreamModels(
       continue;
     }
 
+    const declaredLength = Number(response.headers.get("content-length") ?? "");
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > MAX_MODELS_BODY_BYTES
+    ) {
+      throw new HttpError(
+        502,
+        `Upstream model list is too large (${declaredLength} bytes).`,
+      );
+    }
     const text = await response.text();
+    if (text.length > MAX_MODELS_BODY_BYTES) {
+      throw new HttpError(502, "Upstream model list is too large.");
+    }
     if (response.ok) {
       recordKeySuccess(db, key.id, now);
       try {
@@ -165,19 +180,21 @@ export async function fetchUpstreamModels(
       }
     }
 
+    // Upstream error bodies can echo the credential back; scrub it first.
+    const safeText = redactSecret(text, key.secret);
     const failure = classifyHttpFailure(
       response.status,
-      text,
+      safeText,
       response.headers.get("retry-after"),
       now,
     );
     if (!failure.retryable) {
       throw new HttpError(
         502,
-        `Upstream returned ${response.status} for ${url}: ${extractUpstreamMessage(text)}`,
+        `Upstream returned ${response.status} for ${url}: ${extractUpstreamMessage(safeText)}`,
       );
     }
-    lastMessage = `Upstream returned ${response.status}: ${extractUpstreamMessage(text)}`;
+    lastMessage = `Upstream returned ${response.status}: ${extractUpstreamMessage(safeText)}`;
     recordKeyFailure(db, key.id, failure, lastMessage, now);
   }
 

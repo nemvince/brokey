@@ -1,5 +1,8 @@
 export type SseFrame = { raw: string; separator: string };
 
+/** A single event larger than this means the upstream is not sending SSE. */
+const MAX_FRAME_BYTES = 1024 * 1024;
+
 /** Splits a byte stream into raw SSE event frames, keeping the original separators. */
 export class SseSplitter {
   private decoder = new TextDecoder("utf-8");
@@ -7,7 +10,13 @@ export class SseSplitter {
 
   push(chunk: Uint8Array): SseFrame[] {
     this.buffer += this.decoder.decode(chunk, { stream: true });
-    return this.drain();
+    const frames = this.drain();
+    if (this.buffer.length > MAX_FRAME_BYTES) {
+      throw new Error(
+        `SSE event exceeded ${MAX_FRAME_BYTES} bytes without a separator.`,
+      );
+    }
+    return frames;
   }
 
   flush(): SseFrame[] {
@@ -17,18 +26,22 @@ export class SseSplitter {
     return rest === "" ? [] : [{ raw: rest, separator: "" }];
   }
 
+  /**
+   * Events are terminated by a blank line: `\n\n` or `\r\n\r\n`. Scanning with
+   * `indexOf` keeps this linear; a regex over a growing buffer is quadratic.
+   */
   private drain(): SseFrame[] {
     const frames: SseFrame[] = [];
-    // Events are terminated by a blank line: \n\n or \r\n\r\n.
-    let match = /\r?\n\r?\n/.exec(this.buffer);
-    while (match) {
-      const end = match.index;
-      const separator = match[0];
-      frames.push({ raw: this.buffer.slice(0, end), separator });
-      this.buffer = this.buffer.slice(end + separator.length);
-      match = /\r?\n\r?\n/.exec(this.buffer);
+    for (;;) {
+      const lf = this.buffer.indexOf("\n\n");
+      const crlf = this.buffer.indexOf("\r\n\r\n");
+      const useCrlf = crlf !== -1 && (lf === -1 || crlf <= lf);
+      const index = useCrlf ? crlf : lf;
+      if (index === -1) return frames;
+      const separator = useCrlf ? "\r\n\r\n" : "\n\n";
+      frames.push({ raw: this.buffer.slice(0, index), separator });
+      this.buffer = this.buffer.slice(index + separator.length);
     }
-    return frames;
   }
 }
 
@@ -50,12 +63,6 @@ export function parseEventJson(raw: string): unknown {
   } catch {
     return null;
   }
-}
-
-export const SSE_ENCODER = new TextEncoder();
-
-export function encodeFrames(frames: SseFrame[]): Uint8Array[] {
-  return frames.map((frame) => SSE_ENCODER.encode(frame.raw + frame.separator));
 }
 
 export function isEventStream(contentType: string | null): boolean {

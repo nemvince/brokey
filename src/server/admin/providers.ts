@@ -2,6 +2,11 @@ import { asc, eq } from "drizzle-orm";
 import type { AppDb } from "../db.ts";
 import { HttpError, expectRow, json, readJson } from "../errors.ts";
 import {
+  isValidHeaderName,
+  isValidHeaderValue,
+  RESERVED_EXTRA_HEADERS,
+} from "../headers.ts";
+import {
   models,
   providerKeys,
   type ProviderKeyRow,
@@ -130,6 +135,24 @@ function serializeExtraHeaders(value: unknown): string | null | undefined {
   for (const [name, headerValue] of entries) {
     if (typeof headerValue !== "string") {
       throw new HttpError(400, `"extraHeaders.${name}" must be a string.`);
+    }
+    if (!isValidHeaderName(name)) {
+      throw new HttpError(
+        400,
+        `"extraHeaders.${name}" is not a valid header name.`,
+      );
+    }
+    if (RESERVED_EXTRA_HEADERS.includes(name.toLowerCase())) {
+      throw new HttpError(
+        400,
+        `"extraHeaders.${name}" is set by brokey and cannot be overridden.`,
+      );
+    }
+    if (!isValidHeaderValue(headerValue)) {
+      throw new HttpError(
+        400,
+        `"extraHeaders.${name}" must not contain line breaks or NUL bytes.`,
+      );
     }
     out[name] = headerValue;
   }

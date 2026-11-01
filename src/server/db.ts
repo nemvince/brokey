@@ -1,15 +1,23 @@
 import { Database } from "bun:sqlite";
 import { drizzle, type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { migrations } from "./migrations.generated.ts";
 
 export function openDatabase(path: string): Database {
   if (path !== ":memory:" && !path.startsWith("file::memory:")) {
-    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   }
   const raw = new Database(path, { create: true });
+  // Provider secrets are stored plaintext: the DB file is the security boundary.
+  if (!path.startsWith("file::memory:")) {
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      // best effort (e.g. an unprivileged owner on a network filesystem)
+    }
+  }
   raw.exec("PRAGMA foreign_keys = ON;");
   raw.exec("PRAGMA journal_mode = WAL;");
   raw.exec("PRAGMA busy_timeout = 5000;");

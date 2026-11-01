@@ -95,6 +95,19 @@ export function usageFromResponsesJson(obj: unknown): TokenUsage | null {
   return null;
 }
 
+/**
+ * Any OpenAI-shaped usage block, regardless of endpoint: chat (`prompt_tokens`),
+ * responses (`input_tokens`), or embeddings. Quota accounting must not depend on
+ * which path the client used.
+ */
+export function usageFromAnyJson(obj: unknown): TokenUsage | null {
+  return (
+    usageFromChatJson(obj) ??
+    usageFromResponsesJson(obj) ??
+    usageFromEmbeddingsJson(obj)
+  );
+}
+
 export function usageFromEmbeddingsJson(obj: unknown): TokenUsage | null {
   if (!obj || typeof obj !== "object") return null;
   const usage = (obj as Record<string, unknown>).usage;

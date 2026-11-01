@@ -10,11 +10,13 @@ export type TestApp = {
   stop: () => void;
 };
 
-export function startTestApp(): TestApp {
+export function startTestApp(
+  options: { adminToken?: string; dbPath?: string } = {},
+): TestApp {
   const app = createApp({
     port: 0,
-    dbPath: ":memory:",
-    adminToken: ADMIN_TOKEN,
+    dbPath: options.dbPath ?? ":memory:",
+    adminToken: options.adminToken ?? ADMIN_TOKEN,
     development: false,
   });
   return {
@@ -28,6 +30,7 @@ export type MockCall = {
   path: string;
   method: string;
   auth: string;
+  headers: Record<string, string>;
   body: unknown;
 };
 
@@ -36,8 +39,12 @@ export type MockUpstream = {
   calls: MockCall[];
   models: unknown[];
   /** Override `/chat/completions`: return a Response or undefined to use the default. */
-  chatHandler: ((call: MockCall) => Response | undefined) | null;
+  chatHandler:
+    ((call: MockCall) => Response | Promise<Response> | undefined) | null;
   modelsHandler: ((call: MockCall) => Response | undefined) | null;
+  /** Handle any other path (legacy completions, images, hostile responses). */
+  anyHandler:
+    ((call: MockCall) => Response | Promise<Response> | undefined) | null;
   stop: () => void;
 };
 
@@ -58,6 +65,7 @@ export function startMockUpstream(
     ],
     chatHandler: null,
     modelsHandler: null,
+    anyHandler: null,
     stop: () => undefined,
   };
 
@@ -108,6 +116,7 @@ export function startMockUpstream(
         path: url.pathname,
         method: req.method,
         auth,
+        headers: Object.fromEntries(req.headers.entries()),
         body,
       };
       state.calls.push(call);
@@ -118,9 +127,17 @@ export function startMockUpstream(
         return Response.json({ data: state.models });
       }
       if (url.pathname === "/v1/chat/completions") {
-        const custom = state.chatHandler?.(call);
+        const custom = await state.chatHandler?.(call);
         if (custom) return custom;
         return defaultChat(call);
+      }
+      const any = await state.anyHandler?.(call);
+      if (any) return any;
+      if (url.pathname === "/v1/completions") {
+        return Response.json({
+          choices: [{ text: "legacy completion" }],
+          usage: { prompt_tokens: 4, completion_tokens: 6, total_tokens: 10 },
+        });
       }
       return Response.json(
         { error: { message: "not found" } },
@@ -139,10 +156,11 @@ type RequestOptions = {
   body?: unknown;
   method?: string;
   raw?: string;
+  headers?: Record<string, string>;
 };
 
 function init(options: RequestOptions, auth: string | null): RequestInit {
-  const headers = new Headers();
+  const headers = new Headers(options.headers);
   if (auth) headers.set("authorization", auth);
   if (options.raw !== undefined) {
     headers.set("content-type", "application/json");

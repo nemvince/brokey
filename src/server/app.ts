@@ -22,6 +22,9 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const server = serve({
     port: options.port ?? 3000,
+    // Proxied bodies are buffered once for model rewriting and JSON parsing, so
+    // cap what a client key can make the process hold (Bun's default is 128 MiB).
+    maxRequestBodySize: 16 * 1024 * 1024,
     development: development ? { hmr: true, console: true } : false,
     routes: {
       "/api/health": () => Response.json({ ok: true }),
@@ -29,6 +32,8 @@ export function createApp(options: CreateAppOptions = {}) {
       "/api/admin/*": (req) =>
         handleAdmin(req, new URL(req.url), db, adminToken),
       "/v1/*": (req) => handleProxy(req, { db }),
+      // Bun's HTML bundle route cannot carry custom response headers, so
+      // framing is blocked from `src/index.html` instead.
       "/admin": index,
       "/admin/*": index,
       "/*": index,

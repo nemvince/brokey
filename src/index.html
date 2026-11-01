@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <title>brokey</title>
+    <script>
+      // Bun's HTML bundle route cannot set `X-Frame-Options`, and the admin UI
+      // keeps its token in localStorage, so refuse to render inside a frame.
+      if (window.top !== window.self)
+        document.documentElement.replaceChildren();
+    </script>
   </head>
   <body>
     <div id="root"></div>
