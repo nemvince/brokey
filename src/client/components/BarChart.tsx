@@ -20,22 +20,30 @@ function isoDay(ms: number): string {
 }
 
 /** Builds a continuous, zero-filled axis for the selected range. */
-export function buildAxis(series: Bucket[], range: StatsRange, now = Date.now()): Bucket[] {
+export function buildAxis(
+  series: Bucket[],
+  range: StatsRange,
+  now = Date.now(),
+): Bucket[] {
   const known = new Map(series.map((row) => [row.bucket, row]));
   const keys: string[] = [];
 
   if (range === "24h") {
     const currentHour = Math.floor(now / HOUR_MS) * HOUR_MS;
-    for (let index = 23; index >= 0; index -= 1) keys.push(isoHour(currentHour - index * HOUR_MS));
+    for (let index = 23; index >= 0; index -= 1)
+      keys.push(isoHour(currentHour - index * HOUR_MS));
   } else if (range === "7d" || range === "30d") {
     const days = range === "7d" ? 7 : 30;
     const today = Math.floor(now / DAY_MS) * DAY_MS;
-    for (let index = days - 1; index >= 0; index -= 1) keys.push(isoDay(today - index * DAY_MS));
+    for (let index = days - 1; index >= 0; index -= 1)
+      keys.push(isoDay(today - index * DAY_MS));
   } else if (series.length > 0) {
     const sorted = [...series].sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
     const first = sorted[0]?.bucket as string;
     const last = sorted[sorted.length - 1]?.bucket as string;
-    const start = Date.parse(first.length === 10 ? `${first}T00:00:00Z` : first);
+    const start = Date.parse(
+      first.length === 10 ? `${first}T00:00:00Z` : first,
+    );
     const end = Date.parse(last.length === 10 ? `${last}T00:00:00Z` : last);
     const daily = first.length === 10;
     const step = daily ? DAY_MS : HOUR_MS;
@@ -44,7 +52,9 @@ export function buildAxis(series: Bucket[], range: StatsRange, now = Date.now())
     }
   }
 
-  return keys.map((bucket) => known.get(bucket) ?? { bucket, requests: 0, totalTokens: 0 });
+  return keys.map(
+    (bucket) => known.get(bucket) ?? { bucket, requests: 0, totalTokens: 0 },
+  );
 }
 
 function shortLabel(bucket: string): string {
@@ -73,11 +83,15 @@ export function BarChart(props: { series: Bucket[]; range: StatsRange }) {
       centre,
       x: centre - barWidth / 2,
       barHeight: value * plotHeight,
-      lineY: padding.top + plotHeight - (row.requests / maxRequests) * plotHeight,
+      lineY:
+        padding.top + plotHeight - (row.requests / maxRequests) * plotHeight,
     };
   });
   const linePath = points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.centre.toFixed(2)} ${point.lineY.toFixed(2)}`)
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"}${point.centre.toFixed(2)} ${point.lineY.toFixed(2)}`,
+    )
     .join(" ");
 
   return (

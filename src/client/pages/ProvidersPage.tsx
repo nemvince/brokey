@@ -20,7 +20,12 @@ type Draft = {
   enabled: boolean;
 };
 
-const EMPTY_DRAFT: Draft = { name: "", baseUrl: "", extraHeaders: "", enabled: true };
+const EMPTY_DRAFT: Draft = {
+  name: "",
+  baseUrl: "",
+  extraHeaders: "",
+  enabled: true,
+};
 
 export function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderDTO[]>([]);
@@ -37,7 +42,9 @@ export function ProvidersPage() {
         setProviders(body.providers);
         setError(null);
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   useEffect(load, []);
@@ -46,7 +53,8 @@ export function ProvidersPage() {
     if (!draft) return;
     setBusy(true);
     setFormError(null);
-    const extraHeaders = draft.extraHeaders.trim() === "" ? null : draft.extraHeaders;
+    const extraHeaders =
+      draft.extraHeaders.trim() === "" ? null : draft.extraHeaders;
     let parsedHeaders: Record<string, string> | null = null;
     if (extraHeaders !== null) {
       try {
@@ -57,7 +65,11 @@ export function ProvidersPage() {
         parsedHeaders = parsed as Record<string, string>;
       } catch (cause) {
         setBusy(false);
-        setFormError(cause instanceof Error ? cause.message : "Extra headers must be valid JSON.");
+        setFormError(
+          cause instanceof Error
+            ? cause.message
+            : "Extra headers must be valid JSON.",
+        );
         return;
       }
     }
@@ -92,7 +104,12 @@ export function ProvidersPage() {
         showToast("Provider deleted.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"))
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      )
       .finally(() => setBusy(false));
   };
 
@@ -101,7 +118,13 @@ export function ProvidersPage() {
       <div className="page-head">
         <h1>Providers</h1>
         <span className="spacer" />
-        <Button variant="primary" onClick={() => { setDraft({ ...EMPTY_DRAFT }); setFormError(null); }}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setDraft({ ...EMPTY_DRAFT });
+            setFormError(null);
+          }}
+        >
           Add provider
         </Button>
       </div>
@@ -120,7 +143,11 @@ export function ProvidersPage() {
         ]}
         sticky
         stack
-        empty={providers.length === 0 ? "No providers yet. Add one to get started." : null}
+        empty={
+          providers.length === 0
+            ? "No providers yet. Add one to get started."
+            : null
+        }
       >
         {providers.map((provider) => (
           <tr key={provider.id}>
@@ -146,7 +173,9 @@ export function ProvidersPage() {
             </td>
             <td data-label="Keys">
               <span className="small">
-                {provider.keyCount === 0 ? "none" : `${provider.keyCount} total`}{" "}
+                {provider.keyCount === 0
+                  ? "none"
+                  : `${provider.keyCount} total`}{" "}
                 <span className="muted">
                   ({provider.keyStatusCounts.active} active
                   {provider.keyStatusCounts.cooling > 0
@@ -167,10 +196,20 @@ export function ProvidersPage() {
             </td>
             <td>
               <span className="row-actions">
-                <Button size="small" onClick={() => navigate(`/admin/providers/${provider.id}`)}>
+                <Button
+                  size="small"
+                  onClick={() => navigate(`/admin/providers/${provider.id}`)}
+                >
                   Manage
                 </Button>
-                <Button size="small" variant="danger" onClick={() => { setDeleting(provider); setConfirmName(""); }}>
+                <Button
+                  size="small"
+                  variant="danger"
+                  onClick={() => {
+                    setDeleting(provider);
+                    setConfirmName("");
+                  }}
+                >
                   Delete
                 </Button>
               </span>
@@ -197,7 +236,9 @@ export function ProvidersPage() {
               <input
                 className="input mono"
                 value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, name: event.target.value })
+                }
                 placeholder="openai"
               />
             </Field>
@@ -205,7 +246,9 @@ export function ProvidersPage() {
               <input
                 className="input mono"
                 value={draft.baseUrl}
-                onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, baseUrl: event.target.value })
+                }
                 placeholder="https://api.openai.com/v1"
               />
             </Field>
@@ -217,7 +260,9 @@ export function ProvidersPage() {
               <textarea
                 className="input mono"
                 value={draft.extraHeaders}
-                onChange={(event) => setDraft({ ...draft, extraHeaders: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, extraHeaders: event.target.value })
+                }
                 placeholder="{}"
               />
             </Field>
@@ -225,7 +270,9 @@ export function ProvidersPage() {
               <input
                 type="checkbox"
                 checked={draft.enabled}
-                onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+                onChange={(event) =>
+                  setDraft({ ...draft, enabled: event.target.checked })
+                }
               />
               Enabled
             </label>
@@ -252,8 +299,9 @@ export function ProvidersPage() {
           }
         >
           <Banner>
-            This deletes the provider, its {deleting.keyCount} key(s) and {deleting.modelCount} model(s).
-            Usage history keeps its snapshot labels.
+            This deletes the provider, its {deleting.keyCount} key(s) and{" "}
+            {deleting.modelCount} model(s). Usage history keeps its snapshot
+            labels.
           </Banner>
           <Field label={`Type "${deleting.name}" to confirm`}>
             <input

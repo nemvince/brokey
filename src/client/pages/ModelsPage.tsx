@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import type { ModelDTO, ProviderDTO } from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
-import { Badge, Banner, Button, Field, formatAgo, Modal, showToast, Table } from "../components/ui.tsx";
+import {
+  Badge,
+  Banner,
+  Button,
+  Field,
+  formatAgo,
+  Modal,
+  showToast,
+  Table,
+} from "../components/ui.tsx";
 import { ModelDialog } from "../components/ModelDialog.tsx";
 
 export function ModelsPage() {
@@ -24,14 +33,17 @@ export function ModelsPage() {
         setProviders(providerBody.providers);
         setError(null);
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   useEffect(load, []);
 
   const needle = search.trim().toLowerCase();
   const visible = models.filter((model) => {
-    if (providerFilter !== "all" && String(model.providerId) !== providerFilter) return false;
+    if (providerFilter !== "all" && String(model.providerId) !== providerFilter)
+      return false;
     if (needle === "") return true;
     return (
       model.publicId.toLowerCase().includes(needle) ||
@@ -48,7 +60,12 @@ export function ModelsPage() {
         showToast("Model deleted.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   return (
@@ -137,7 +154,10 @@ export function ModelsPage() {
                   })
                     .then(load)
                     .catch((cause: unknown) =>
-                      showToast(String(cause instanceof Error ? cause.message : cause), "error"),
+                      showToast(
+                        String(cause instanceof Error ? cause.message : cause),
+                        "error",
+                      ),
                     )
                 }
               />
@@ -161,7 +181,11 @@ export function ModelsPage() {
                 <Button size="small" onClick={() => setEditing(model)}>
                   Edit
                 </Button>
-                <Button size="small" variant="danger" onClick={() => setDeleting(model)}>
+                <Button
+                  size="small"
+                  variant="danger"
+                  onClick={() => setDeleting(model)}
+                >
                   Delete
                 </Button>
               </span>
@@ -211,7 +235,8 @@ export function ModelsPage() {
           }
         >
           <p className="small muted">
-            Usage history keeps the public ID snapshot; the request log loses its link to this model.
+            Usage history keeps the public ID snapshot; the request log loses
+            its link to this model.
           </p>
         </Modal>
       ) : null}

@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const providers = sqliteTable(
   "providers",
@@ -34,7 +40,12 @@ export const providerKeys = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (table) => [index("provider_keys_provider_enabled_idx").on(table.providerId, table.enabled)],
+  (table) => [
+    index("provider_keys_provider_enabled_idx").on(
+      table.providerId,
+      table.enabled,
+    ),
+  ],
 );
 
 export const models = sqliteTable(
@@ -53,7 +64,9 @@ export const models = sqliteTable(
     notes: text("notes"),
     upstreamCreatedAt: integer("upstream_created_at"),
     upstreamOwnedBy: text("upstream_owned_by"),
-    upstreamAvailable: integer("upstream_available", { mode: "boolean" }).notNull().default(true),
+    upstreamAvailable: integer("upstream_available", { mode: "boolean" })
+      .notNull()
+      .default(true),
     syncedDisplayName: text("synced_display_name"),
     syncedContextWindow: integer("synced_context_window"),
     syncedMaxOutputTokens: integer("synced_max_output_tokens"),
@@ -62,7 +75,10 @@ export const models = sqliteTable(
   },
   (table) => [
     uniqueIndex("models_public_id_unique").on(table.publicId),
-    uniqueIndex("models_provider_upstream_unique").on(table.providerId, table.upstreamId),
+    uniqueIndex("models_provider_upstream_unique").on(
+      table.providerId,
+      table.upstreamId,
+    ),
     index("models_enabled_public_id_idx").on(table.enabled, table.publicId),
   ],
 );
@@ -92,14 +108,23 @@ export const usageLogs = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     requestId: text("request_id").notNull(),
-    clientKeyId: integer("client_key_id").references(() => clientKeys.id, { onDelete: "set null" }),
-    clientKeyLabel: text("client_key_label").notNull(),
-    providerId: integer("provider_id").references(() => providers.id, { onDelete: "set null" }),
-    providerName: text("provider_name").notNull(),
-    providerKeyId: integer("provider_key_id").references(() => providerKeys.id, {
+    clientKeyId: integer("client_key_id").references(() => clientKeys.id, {
       onDelete: "set null",
     }),
-    modelId: integer("model_id").references(() => models.id, { onDelete: "set null" }),
+    clientKeyLabel: text("client_key_label").notNull(),
+    providerId: integer("provider_id").references(() => providers.id, {
+      onDelete: "set null",
+    }),
+    providerName: text("provider_name").notNull(),
+    providerKeyId: integer("provider_key_id").references(
+      () => providerKeys.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    modelId: integer("model_id").references(() => models.id, {
+      onDelete: "set null",
+    }),
     modelPublicId: text("model_public_id").notNull().default(""),
     endpoint: text("endpoint").notNull(),
     method: text("method").notNull(),
@@ -109,15 +134,23 @@ export const usageLogs = sqliteTable(
     promptTokens: integer("prompt_tokens").notNull().default(0),
     completionTokens: integer("completion_tokens").notNull().default(0),
     totalTokens: integer("total_tokens").notNull().default(0),
-    estimated: integer("estimated", { mode: "boolean" }).notNull().default(false),
+    estimated: integer("estimated", { mode: "boolean" })
+      .notNull()
+      .default(false),
     latencyMs: integer("latency_ms").notNull(),
     upstreamLatencyMs: integer("upstream_latency_ms"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
     index("usage_logs_created_at_idx").on(table.createdAt),
-    index("usage_logs_client_key_created_at_idx").on(table.clientKeyId, table.createdAt),
-    index("usage_logs_provider_created_at_idx").on(table.providerId, table.createdAt),
+    index("usage_logs_client_key_created_at_idx").on(
+      table.clientKeyId,
+      table.createdAt,
+    ),
+    index("usage_logs_provider_created_at_idx").on(
+      table.providerId,
+      table.createdAt,
+    ),
     index("usage_logs_model_created_at_idx").on(table.modelId, table.createdAt),
   ],
 );

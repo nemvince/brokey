@@ -20,9 +20,11 @@ function intParam(url: URL, name: string): number | undefined {
 export function listUsage(ctx: AdminCtx): Response {
   const conditions = [];
   const clientKeyId = queryInt(ctx.url, "clientKeyId");
-  if (clientKeyId !== undefined) conditions.push(eq(usageLogs.clientKeyId, clientKeyId));
+  if (clientKeyId !== undefined)
+    conditions.push(eq(usageLogs.clientKeyId, clientKeyId));
   const providerId = queryInt(ctx.url, "providerId");
-  if (providerId !== undefined) conditions.push(eq(usageLogs.providerId, providerId));
+  if (providerId !== undefined)
+    conditions.push(eq(usageLogs.providerId, providerId));
   const modelId = queryInt(ctx.url, "modelId");
   if (modelId !== undefined) conditions.push(eq(usageLogs.modelId, modelId));
 
@@ -43,7 +45,11 @@ export function listUsage(ctx: AdminCtx): Response {
   const where = conditions.length > 0 ? and(...conditions) : sql`1 = 1`;
 
   const total = Number(
-    ctx.db.select({ count: sql<number>`count(*)` }).from(usageLogs).where(where).get()?.count ?? 0,
+    ctx.db
+      .select({ count: sql<number>`count(*)` })
+      .from(usageLogs)
+      .where(where)
+      .get()?.count ?? 0,
   );
   const rows = ctx.db
     .select()
@@ -54,6 +60,11 @@ export function listUsage(ctx: AdminCtx): Response {
     .offset(page * pageSize)
     .all();
 
-  const result: UsagePage = { rows: rows.map(toUsageRow), total, page, pageSize };
+  const result: UsagePage = {
+    rows: rows.map(toUsageRow),
+    total,
+    page,
+    pageSize,
+  };
   return json(result);
 }

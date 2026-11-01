@@ -44,7 +44,10 @@ export function Field(props: {
   );
 }
 
-export function Badge(props: { children: ReactNode; tone?: "ok" | "warn" | "danger" | "muted" }) {
+export function Badge(props: {
+  children: ReactNode;
+  tone?: "ok" | "warn" | "danger" | "muted";
+}) {
   const tone = props.tone ?? "muted";
   return <span className={`badge badge-${tone}`}>{props.children}</span>;
 }
@@ -67,7 +70,10 @@ export function Table(props: {
         <thead>
           <tr>
             {props.columns.map((column) => (
-              <th key={column.key} className={column.numeric ? "num" : undefined}>
+              <th
+                key={column.key}
+                className={column.numeric ? "num" : undefined}
+              >
                 {column.label}
               </th>
             ))}
@@ -105,7 +111,9 @@ export function Modal(props: {
       if (event.key === "Escape") closeRef.current();
     };
     document.addEventListener("keydown", onKey);
-    const focusable = ref.current?.querySelector<HTMLElement>("input, select, textarea, button");
+    const focusable = ref.current?.querySelector<HTMLElement>(
+      "input, select, textarea, button",
+    );
     focusable?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, []);
@@ -174,7 +182,10 @@ export function ToastHost() {
   return (
     <div className="toast-host" role="status" aria-live="polite">
       {items.map((toast) => (
-        <div key={toast.id} className={`toast${toast.tone === "error" ? " toast-error" : ""}`}>
+        <div
+          key={toast.id}
+          className={`toast${toast.tone === "error" ? " toast-error" : ""}`}
+        >
           {toast.message}
         </div>
       ))}
@@ -202,9 +213,16 @@ export function CopyButton(props: { value: string; label?: string }) {
   );
 }
 
-export function Banner(props: { children: ReactNode; tone?: "danger" | "info" | "warn" }) {
+export function Banner(props: {
+  children: ReactNode;
+  tone?: "danger" | "info" | "warn";
+}) {
   const tone = props.tone ?? "danger";
-  return <div className={`banner${tone === "danger" ? "" : ` banner-${tone}`}`}>{props.children}</div>;
+  return (
+    <div className={`banner${tone === "danger" ? "" : ` banner-${tone}`}`}>
+      {props.children}
+    </div>
+  );
 }
 
 export function formatNumber(value: number): string {

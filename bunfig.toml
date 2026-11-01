@@ -1,6 +1,11 @@
 [serve.static]
 env = "BUN_PUBLIC_*"
 
+[fmt]
+# `drizzle/` and the generated migration module are drizzle-kit/script output;
+# reformatting them would churn on every generate.
+ignorePatterns = ["drizzle/", "src/server/migrations.generated.ts"]
+
 [lint]
 # typeAware = true   # also run the rules that need types
 

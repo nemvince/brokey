@@ -32,7 +32,12 @@ async function parseError(response: Response): Promise<ApiError> {
     const body: unknown = await response.json();
     if (body && typeof body === "object" && "error" in body) {
       const error = body.error;
-      if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+      if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+      ) {
         message = error.message;
       }
     }
@@ -42,7 +47,10 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, message);
 }
 
-export async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function adminFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
   const token = getAdminToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("authorization", `Bearer ${token}`);
@@ -62,7 +70,9 @@ export async function adminFetch<T>(path: string, init: RequestInit = {}): Promi
 }
 
 export async function publicFetch<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { accept: "application/json" } });
+  const response = await fetch(path, {
+    headers: { accept: "application/json" },
+  });
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as T;
 }

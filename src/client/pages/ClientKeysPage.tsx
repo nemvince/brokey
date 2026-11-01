@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { ClientKeyCreatedDTO, ClientKeyDTO, LimitWindow } from "../../shared/types.ts";
+import type {
+  ClientKeyCreatedDTO,
+  ClientKeyDTO,
+  LimitWindow,
+} from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
 import {
   Badge,
@@ -39,7 +43,9 @@ export function ClientKeysPage() {
         setKeys(body.clientKeys);
         setError(null);
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   useEffect(load, []);
@@ -52,7 +58,8 @@ export function ClientKeysPage() {
         name,
         limitWindow: window,
         limitTokens: limitTokens.trim() === "" ? null : Number(limitTokens),
-        limitRequests: limitRequests.trim() === "" ? null : Number(limitRequests),
+        limitRequests:
+          limitRequests.trim() === "" ? null : Number(limitRequests),
       }),
     })
       .then((created) => {
@@ -63,7 +70,9 @@ export function ClientKeysPage() {
         setWindow("total");
         load();
       })
-      .catch((cause: unknown) => setFormError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setFormError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   const remove = () => {
@@ -74,7 +83,12 @@ export function ClientKeysPage() {
         showToast("Client key deleted.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   return (
@@ -109,7 +123,11 @@ export function ClientKeysPage() {
         ]}
         sticky
         stack
-        empty={keys.length === 0 ? "No client keys yet. Create one to start proxying." : null}
+        empty={
+          keys.length === 0
+            ? "No client keys yet. Create one to start proxying."
+            : null
+        }
       >
         {keys.map((key) => (
           <tr key={key.id}>
@@ -118,13 +136,16 @@ export function ClientKeysPage() {
               {key.keyPrefix}…
             </td>
             <td data-label="Enabled">
-              <Badge tone={key.enabled ? "ok" : "muted"}>{key.enabled ? "yes" : "no"}</Badge>
+              <Badge tone={key.enabled ? "ok" : "muted"}>
+                {key.enabled ? "yes" : "no"}
+              </Badge>
             </td>
             <td data-label="Window" className="mono small">
               {key.limitWindow}
             </td>
             <td data-label="Requests" className="num">
-              {formatNumber(key.usage.requests)} / {limitText(key.limitRequests)}
+              {formatNumber(key.usage.requests)} /{" "}
+              {limitText(key.limitRequests)}
             </td>
             <td data-label="Tokens" className="num">
               {formatNumber(key.usage.tokens)} / {limitText(key.limitTokens)}
@@ -137,7 +158,11 @@ export function ClientKeysPage() {
                 <Button size="small" onClick={() => setEditing(key)}>
                   Edit
                 </Button>
-                <Button size="small" variant="danger" onClick={() => setDeleting(key)}>
+                <Button
+                  size="small"
+                  variant="danger"
+                  onClick={() => setDeleting(key)}
+                >
                   Delete
                 </Button>
               </span>
@@ -164,7 +189,11 @@ export function ClientKeysPage() {
                 {createdToken ? "Done" : "Cancel"}
               </Button>
               {createdToken ? null : (
-                <Button variant="primary" onClick={create} disabled={name.trim() === ""}>
+                <Button
+                  variant="primary"
+                  onClick={create}
+                  disabled={name.trim() === ""}
+                >
                   Create key
                 </Button>
               )}
@@ -173,7 +202,9 @@ export function ClientKeysPage() {
         >
           {createdToken ? (
             <div className="key-panel">
-              <strong className="small">Copy this key now — it cannot be shown again.</strong>
+              <strong className="small">
+                Copy this key now — it cannot be shown again.
+              </strong>
               <span className="key-value">{createdToken}</span>
               <div>
                 <CopyButton value={createdToken} label="Copy key" />
@@ -194,7 +225,9 @@ export function ClientKeysPage() {
                   <select
                     className="select"
                     value={window}
-                    onChange={(event) => setWindow(event.target.value as LimitWindow)}
+                    onChange={(event) =>
+                      setWindow(event.target.value as LimitWindow)
+                    }
                   >
                     {WINDOWS.map((option) => (
                       <option key={option} value={option}>
@@ -254,7 +287,8 @@ export function ClientKeysPage() {
           }
         >
           <p className="small muted">
-            Requests signed with this key stop working immediately. Usage history keeps its label.
+            Requests signed with this key stop working immediately. Usage
+            history keeps its label.
           </p>
         </Modal>
       ) : null}
@@ -269,12 +303,18 @@ function EditKeyDialog(props: {
 }) {
   const [name, setName] = useState(props.clientKey.name);
   const [enabled, setEnabled] = useState(props.clientKey.enabled);
-  const [window, setWindow] = useState<LimitWindow>(props.clientKey.limitWindow);
+  const [window, setWindow] = useState<LimitWindow>(
+    props.clientKey.limitWindow,
+  );
   const [limitTokens, setLimitTokens] = useState(
-    props.clientKey.limitTokens === null ? "" : String(props.clientKey.limitTokens),
+    props.clientKey.limitTokens === null
+      ? ""
+      : String(props.clientKey.limitTokens),
   );
   const [limitRequests, setLimitRequests] = useState(
-    props.clientKey.limitRequests === null ? "" : String(props.clientKey.limitRequests),
+    props.clientKey.limitRequests === null
+      ? ""
+      : String(props.clientKey.limitRequests),
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -287,11 +327,14 @@ function EditKeyDialog(props: {
         enabled,
         limitWindow: window,
         limitTokens: limitTokens.trim() === "" ? null : Number(limitTokens),
-        limitRequests: limitRequests.trim() === "" ? null : Number(limitRequests),
+        limitRequests:
+          limitRequests.trim() === "" ? null : Number(limitRequests),
       }),
     })
       .then(props.onSaved)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   return (
@@ -309,7 +352,11 @@ function EditKeyDialog(props: {
     >
       <div className="form-grid">
         <Field label="Name">
-          <input className="input" value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            className="input"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </Field>
         <Field label="Limit window">
           <select

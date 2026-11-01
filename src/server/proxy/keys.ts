@@ -12,7 +12,10 @@ const COOLDOWN_QUOTA = 3_600;
 const COOLDOWN_RATE_LIMIT_DEFAULT = 60;
 const COOLDOWN_NETWORK = 15;
 
-export function providerKeyStatus(row: ProviderKeyRow, now = Date.now()): KeyStatus {
+export function providerKeyStatus(
+  row: ProviderKeyRow,
+  now = Date.now(),
+): KeyStatus {
   if (!row.enabled) return "disabled";
   if (row.cooldownUntil !== null && row.cooldownUntil > now) return "cooling";
   return "active";
@@ -39,7 +42,12 @@ export function selectCandidates(
   const rows = db
     .select()
     .from(providerKeys)
-    .where(and(eq(providerKeys.providerId, providerId), eq(providerKeys.enabled, true)))
+    .where(
+      and(
+        eq(providerKeys.providerId, providerId),
+        eq(providerKeys.enabled, true),
+      ),
+    )
     .orderBy(
       sql`${providerKeys.lastUsedAt} IS NOT NULL`,
       asc(providerKeys.lastUsedAt),
@@ -47,15 +55,23 @@ export function selectCandidates(
     )
     .all();
 
-  const cooling = rows.filter((row) => row.cooldownUntil !== null && row.cooldownUntil > now);
-  const available = rows.filter((row) => row.cooldownUntil === null || row.cooldownUntil <= now);
+  const cooling = rows.filter(
+    (row) => row.cooldownUntil !== null && row.cooldownUntil > now,
+  );
+  const available = rows.filter(
+    (row) => row.cooldownUntil === null || row.cooldownUntil <= now,
+  );
   const idle = available.filter((row) => !busyKeys.has(row.id));
-  const ordered = idle.length > 0 ? [...idle, ...available.filter((row) => busyKeys.has(row.id))] : available;
+  const ordered =
+    idle.length > 0
+      ? [...idle, ...available.filter((row) => busyKeys.has(row.id))]
+      : available;
 
   let earliestCooldown: number | null = null;
   for (const row of cooling) {
     const until = row.cooldownUntil as number;
-    if (earliestCooldown === null || until < earliestCooldown) earliestCooldown = until;
+    if (earliestCooldown === null || until < earliestCooldown)
+      earliestCooldown = until;
   }
 
   return {
@@ -73,9 +89,18 @@ export function markKeyUsed(db: AppDb, keyId: number, now = Date.now()): void {
     .run();
 }
 
-export function recordKeySuccess(db: AppDb, keyId: number, now = Date.now()): void {
+export function recordKeySuccess(
+  db: AppDb,
+  keyId: number,
+  now = Date.now(),
+): void {
   db.update(providerKeys)
-    .set({ lastUsedAt: now, lastError: null, lastErrorAt: null, updatedAt: now })
+    .set({
+      lastUsedAt: now,
+      lastError: null,
+      lastErrorAt: null,
+      updatedAt: now,
+    })
     .where(eq(providerKeys.id, keyId))
     .run();
 }
@@ -111,7 +136,10 @@ export function recordKeyFailure(
  * Parse a `Retry-After` header into seconds, clamped to 1–3600.
  * Accepts integer seconds, an HTTP date, or durations like `1.5s` / `30m`.
  */
-export function parseRetryAfter(header: string | null, now = Date.now()): number {
+export function parseRetryAfter(
+  header: string | null,
+  now = Date.now(),
+): number {
   const fallback = COOLDOWN_RATE_LIMIT_DEFAULT;
   if (!header) return fallback;
   const value = header.trim();
@@ -123,7 +151,8 @@ export function parseRetryAfter(header: string | null, now = Date.now()): number
   if (duration) {
     const amount = Number(duration[1]);
     const unit = (duration[2] as string).toLowerCase();
-    const factor = unit === "ms" ? 0.001 : unit === "s" ? 1 : unit === "m" ? 60 : 3600;
+    const factor =
+      unit === "ms" ? 0.001 : unit === "s" ? 1 : unit === "m" ? 60 : 3600;
     return clampSeconds(amount * factor);
   }
 
@@ -146,17 +175,33 @@ export function classifyHttpFailure(
   now = Date.now(),
 ): KeyFailure {
   if (status === 401) {
-    return { retryable: true, cooldownSeconds: COOLDOWN_401, errorCode: "invalid_key" };
+    return {
+      retryable: true,
+      cooldownSeconds: COOLDOWN_401,
+      errorCode: "invalid_key",
+    };
   }
   if (status === 402) {
-    return { retryable: true, cooldownSeconds: COOLDOWN_402, errorCode: "payment_required" };
+    return {
+      retryable: true,
+      cooldownSeconds: COOLDOWN_402,
+      errorCode: "payment_required",
+    };
   }
   if (status === 403) {
-    return { retryable: true, cooldownSeconds: COOLDOWN_403, errorCode: "forbidden" };
+    return {
+      retryable: true,
+      cooldownSeconds: COOLDOWN_403,
+      errorCode: "forbidden",
+    };
   }
   if (status === 429) {
     if (bodyText.includes("insufficient_quota")) {
-      return { retryable: true, cooldownSeconds: COOLDOWN_QUOTA, errorCode: "quota_exhausted" };
+      return {
+        retryable: true,
+        cooldownSeconds: COOLDOWN_QUOTA,
+        errorCode: "quota_exhausted",
+      };
     }
     return {
       retryable: true,
@@ -168,10 +213,18 @@ export function classifyHttpFailure(
 }
 
 export function networkFailure(): KeyFailure {
-  return { retryable: true, cooldownSeconds: COOLDOWN_NETWORK, errorCode: "network_error" };
+  return {
+    retryable: true,
+    cooldownSeconds: COOLDOWN_NETWORK,
+    errorCode: "network_error",
+  };
 }
 
-export function upstreamUrl(baseUrl: string, pathname: string, search: string): string {
+export function upstreamUrl(
+  baseUrl: string,
+  pathname: string,
+  search: string,
+): string {
   const base = baseUrl.replace(/\/+$/, "");
   const suffix = pathname.replace(/^\/v1/, "");
   return `${base}${suffix}${search}`;
@@ -181,7 +234,11 @@ export function isClientAbort(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-export function activeKeyCount(db: AppDb, providerId: number, now = Date.now()): number {
+export function activeKeyCount(
+  db: AppDb,
+  providerId: number,
+  now = Date.now(),
+): number {
   return (
     db
       .select({ count: sql<number>`count(*)` })
@@ -190,7 +247,10 @@ export function activeKeyCount(db: AppDb, providerId: number, now = Date.now()):
         and(
           eq(providerKeys.providerId, providerId),
           eq(providerKeys.enabled, true),
-          or(isNull(providerKeys.cooldownUntil), lte(providerKeys.cooldownUntil, now)),
+          or(
+            isNull(providerKeys.cooldownUntil),
+            lte(providerKeys.cooldownUntil, now),
+          ),
         ),
       )
       .get()?.count ?? 0

@@ -110,7 +110,11 @@ export type SyncPreview = {
     upstreamId: string;
     suggestedPublicId: string;
     aliasConflict: boolean;
-    upstream: { displayName?: string; contextWindow?: number; maxOutputTokens?: number };
+    upstream: {
+      displayName?: string;
+      contextWindow?: number;
+      maxOutputTokens?: number;
+    };
   }[];
   matched: { modelId: number; publicId: string; changedFields: SyncField[] }[];
   missing: {
@@ -132,7 +136,11 @@ export type SyncPreview = {
 export type SyncApplyBody = {
   added?: { upstreamId: string; publicId: string }[];
   missing?: { modelId: number; action: "keep" | "disable" | "delete" }[];
-  resolutions?: { modelId: number; field: SyncField; choice: "local" | "upstream" }[];
+  resolutions?: {
+    modelId: number;
+    field: SyncField;
+    choice: "local" | "upstream";
+  }[];
 };
 
 export type StatsRange = "24h" | "7d" | "30d" | "all";
@@ -150,9 +158,19 @@ export type StatsResponse = {
   };
   today: { requests: number; totalTokens: number };
   series: { bucket: string; requests: number; totalTokens: number }[];
-  byModel: { label: string; provider: string; requests: number; totalTokens: number }[];
+  byModel: {
+    label: string;
+    provider: string;
+    requests: number;
+    totalTokens: number;
+  }[];
   byProvider: { label: string; requests: number; totalTokens: number }[];
-  byClientKey: { label: string; prefix: string; requests: number; totalTokens: number }[];
+  byClientKey: {
+    label: string;
+    prefix: string;
+    requests: number;
+    totalTokens: number;
+  }[];
   recent: {
     requestId: string;
     createdAt: number;

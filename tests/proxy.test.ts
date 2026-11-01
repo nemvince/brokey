@@ -16,7 +16,11 @@ import {
 type ErrorBody = { error: { message: string; code: string | null } };
 type ChatBody = {
   choices: { message: { content: string } }[];
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
   model?: string;
 };
 type StatsBody = {
@@ -40,15 +44,19 @@ describe("proxy data path", () => {
     });
     providerId = provider.providerId;
 
-    const preview = await adminJson<{ added: { upstreamId: string; suggestedPublicId: string }[] }>(
-      app,
-      `/api/admin/providers/${providerId}/models/fetch`,
-      { method: "POST" },
+    const preview = await adminJson<{
+      added: { upstreamId: string; suggestedPublicId: string }[];
+    }>(app, `/api/admin/providers/${providerId}/models/fetch`, {
+      method: "POST",
+    });
+    const addition = preview.added.find(
+      (row) => row.upstreamId === "upstream-mock-chat",
     );
-    const addition = preview.added.find((row) => row.upstreamId === "upstream-mock-chat");
     expect(addition).toBeDefined();
     await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, {
-      body: { added: [{ upstreamId: "upstream-mock-chat", publicId: "mock-chat" }] },
+      body: {
+        added: [{ upstreamId: "upstream-mock-chat", publicId: "mock-chat" }],
+      },
     });
 
     const key = await seedClientKey(app, { name: "demo" });
@@ -70,7 +78,9 @@ describe("proxy data path", () => {
     expect(body.choices[0]?.message.content).toBe("hello");
     expect(body.usage?.total_tokens).toBe(10);
 
-    const stats = await readJson<StatsBody>(await fetch(`${app.baseUrl}/api/stats?range=24h`));
+    const stats = await readJson<StatsBody>(
+      await fetch(`${app.baseUrl}/api/stats?range=24h`),
+    );
     expect(stats.totals.requests).toBe(1);
     expect(stats.totals.totalTokens).toBe(10);
     expect(stats.recent[0]?.status).toBe(200);
@@ -78,11 +88,18 @@ describe("proxy data path", () => {
 
   test("public model ID is rewritten to the upstream ID", async () => {
     await proxyRequest(app, "/v1/chat/completions", token, {
-      body: { model: "mock-chat", messages: [{ role: "user", content: "rewrite" }] },
+      body: {
+        model: "mock-chat",
+        messages: [{ role: "user", content: "rewrite" }],
+      },
     });
-    const chatCalls = mock.calls.filter((call) => call.path === "/v1/chat/completions");
+    const chatCalls = mock.calls.filter(
+      (call) => call.path === "/v1/chat/completions",
+    );
     const last = chatCalls[chatCalls.length - 1];
-    expect((last?.body as { model?: string } | null)?.model).toBe("upstream-mock-chat");
+    expect((last?.body as { model?: string } | null)?.model).toBe(
+      "upstream-mock-chat",
+    );
     expect(last?.auth).toBe("Bearer sk-primary-a");
   });
 
@@ -92,7 +109,10 @@ describe("proxy data path", () => {
 
     const response = await proxyRequest(app, "/v1/models", token);
     expect(response.status).toBe(200);
-    const body = await readJson<{ object: string; data: { id: string; owned_by: string }[] }>(response);
+    const body = await readJson<{
+      object: string;
+      data: { id: string; owned_by: string }[];
+    }>(response);
     expect(body.object).toBe("list");
     expect(body.data.map((row) => row.id)).toContain("mock-chat");
     expect(body.data[0]?.owned_by).toBe("primary");
@@ -121,14 +141,17 @@ describe("proxy data path", () => {
 
     const upstreamBody = mock.calls
       .filter((call) => call.path === "/v1/chat/completions")
-      .map((call) => call.body as { stream_options?: { include_usage?: boolean } } | null)
+      .map(
+        (call) =>
+          call.body as { stream_options?: { include_usage?: boolean } } | null,
+      )
       .filter((body) => body?.stream_options !== undefined)
       .pop();
     expect(upstreamBody?.stream_options?.include_usage).toBe(true);
 
-    const usage = await readJson<{ rows: { streamed: boolean; totalTokens: number }[] }>(
-      await adminRequest(app, "/api/admin/usage?pageSize=1"),
-    );
+    const usage = await readJson<{
+      rows: { streamed: boolean; totalTokens: number }[];
+    }>(await adminRequest(app, "/api/admin/usage?pageSize=1"));
     expect(usage.rows[0]?.streamed).toBe(true);
     expect(usage.rows[0]?.totalTokens).toBe(10);
   });
@@ -140,12 +163,22 @@ describe("proxy data path", () => {
       limitRequests: 5,
       limitTokens: 1000,
     });
-    const response = await proxyRequest(app, "/v1/chat/completions", limited.token, {
-      body: { model: "mock-chat", messages: [{ role: "user", content: "abc" }] },
-    });
+    const response = await proxyRequest(
+      app,
+      "/v1/chat/completions",
+      limited.token,
+      {
+        body: {
+          model: "mock-chat",
+          messages: [{ role: "user", content: "abc" }],
+        },
+      },
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("x-brokey-requests-remaining")).toBe("4");
-    expect(Number(response.headers.get("x-brokey-tokens-remaining"))).toBeLessThan(1000);
+    expect(
+      Number(response.headers.get("x-brokey-tokens-remaining")),
+    ).toBeLessThan(1000);
   });
 });
 
@@ -164,7 +197,10 @@ describe("provider key failover", () => {
       secrets: ["sk-bad-a", "sk-good-b"],
     });
     providerId = provider.providerId;
-    await seedModel(app, providerId, { upstreamId: "upstream-mock-chat", publicId: "mock-chat" });
+    await seedModel(app, providerId, {
+      upstreamId: "upstream-mock-chat",
+      publicId: "mock-chat",
+    });
     token = (await seedClientKey(app, { name: "failover-key" })).token;
   });
 
@@ -186,10 +222,17 @@ describe("provider key failover", () => {
       body: { model: "mock-chat", messages: [{ role: "user", content: "hi" }] },
     });
     expect(response.status).toBe(200);
-    expect((await readJson<ChatBody>(response)).choices[0]?.message.content).toBe("hello");
+    expect(
+      (await readJson<ChatBody>(response)).choices[0]?.message.content,
+    ).toBe("hello");
 
     const detail = await adminJson<{
-      keys: { label: string; status: string; cooldownUntil: number | null; lastError: string | null }[];
+      keys: {
+        label: string;
+        status: string;
+        cooldownUntil: number | null;
+        lastError: string | null;
+      }[];
     }>(app, `/api/admin/providers/${providerId}`);
     const bad = detail.keys.find((key) => key.label === "key-1");
     const good = detail.keys.find((key) => key.label === "key-2");
@@ -198,10 +241,9 @@ describe("provider key failover", () => {
     expect(bad?.lastError).toContain("429");
     expect(good?.status).toBe("active");
 
-    const providers = await adminJson<{ providers: { keyStatusCounts: { cooling: number } }[] }>(
-      app,
-      "/api/admin/providers",
-    );
+    const providers = await adminJson<{
+      providers: { keyStatusCounts: { cooling: number } }[];
+    }>(app, "/api/admin/providers");
     expect(providers.providers[0]?.keyStatusCounts.cooling).toBe(1);
   });
 });
@@ -215,7 +257,10 @@ describe("all provider keys exhausted", () => {
     app = startTestApp();
     mock = startMockUpstream();
     mock.chatHandler = () =>
-      Response.json({ error: { message: "quota gone" } }, { status: 429, headers: { "retry-after": "45" } });
+      Response.json(
+        { error: { message: "quota gone" } },
+        { status: 429, headers: { "retry-after": "45" } },
+      );
     const provider = await seedProvider(app, {
       name: "exhausted",
       baseUrl: mock.baseUrl,
@@ -238,7 +283,9 @@ describe("all provider keys exhausted", () => {
       body: { model: "mock-chat", messages: [] },
     });
     expect(first.status).toBe(429);
-    expect((await readJson<ErrorBody>(first)).error.message).toContain("quota gone");
+    expect((await readJson<ErrorBody>(first)).error.message).toContain(
+      "quota gone",
+    );
 
     const second = await proxyRequest(app, "/v1/chat/completions", token, {
       body: { model: "mock-chat", messages: [] },
@@ -246,7 +293,9 @@ describe("all provider keys exhausted", () => {
     expect(second.status).toBe(429);
     const body = await readJson<ErrorBody>(second);
     expect(body.error.code).toBe("all_keys_exhausted");
-    expect(body.error.message).toBe("All API keys for this provider are temporarily unavailable.");
+    expect(body.error.message).toBe(
+      "All API keys for this provider are temporarily unavailable.",
+    );
     const retryAfter = Number(second.headers.get("retry-after"));
     expect(retryAfter).toBeGreaterThan(0);
     expect(retryAfter).toBeLessThanOrEqual(45);
@@ -268,7 +317,10 @@ describe("routing errors", () => {
       secrets: ["sk-routing"],
     });
     providerId = provider.providerId;
-    await seedModel(app, providerId, { upstreamId: "upstream-mock-chat", publicId: "mock-chat" });
+    await seedModel(app, providerId, {
+      upstreamId: "upstream-mock-chat",
+      publicId: "mock-chat",
+    });
     await seedModel(app, providerId, {
       upstreamId: "gpt-x",
       publicId: "disabled-model",
@@ -310,7 +362,9 @@ describe("routing errors", () => {
       body: { model: "mock-chat", messages: [] },
     });
     expect(response.status).toBe(503);
-    expect((await readJson<ErrorBody>(response)).error.code).toBe("provider_unavailable");
+    expect((await readJson<ErrorBody>(response)).error.code).toBe(
+      "provider_unavailable",
+    );
 
     const catalog = await proxyRequest(app, "/v1/models", token);
     const body = await readJson<{ data: { id: string }[] }>(catalog);
@@ -354,7 +408,9 @@ describe("routing errors", () => {
     });
     expect(response.status).toBe(503);
     const body = await readJson<ErrorBody>(response);
-    expect(body.error.message).toBe('No enabled API keys for provider "routing".');
+    expect(body.error.message).toBe(
+      'No enabled API keys for provider "routing".',
+    );
   });
 
   test("invalid JSON for a strict endpoint returns 400 without an upstream call", async () => {
@@ -363,7 +419,9 @@ describe("routing errors", () => {
       raw: "{not json",
     });
     expect(response.status).toBe(400);
-    expect((await readJson<ErrorBody>(response)).error.message).toContain("parse the JSON body");
+    expect((await readJson<ErrorBody>(response)).error.message).toContain(
+      "parse the JSON body",
+    );
     expect(mock.calls.length).toBe(before);
   });
 });
@@ -388,7 +446,10 @@ describe("streaming fallback when the upstream rejects stream_options", () => {
     token = (await seedClientKey(app, { name: "strict-key" })).token;
 
     mock.chatHandler = (call) => {
-      const body = call.body as { stream_options?: unknown; stream?: boolean } | null;
+      const body = call.body as {
+        stream_options?: unknown;
+        stream?: boolean;
+      } | null;
       if (body?.stream_options !== undefined) {
         return Response.json(
           { error: { message: "stream_options is not supported" } },
@@ -417,20 +478,37 @@ describe("streaming fallback when the upstream rejects stream_options", () => {
 
   test("retries once without the injected option and records estimated tokens", async () => {
     const response = await proxyRequest(app, "/v1/chat/completions", token, {
-      body: { model: "mock-chat", stream: true, messages: [{ role: "user", content: "hi there" }] },
+      body: {
+        model: "mock-chat",
+        stream: true,
+        messages: [{ role: "user", content: "hi there" }],
+      },
     });
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain("hel");
     expect(text).toContain("lo");
 
-    const streamCalls = mock.calls.filter((call) => call.path === "/v1/chat/completions");
+    const streamCalls = mock.calls.filter(
+      (call) => call.path === "/v1/chat/completions",
+    );
     expect(streamCalls.length).toBe(2);
-    expect((streamCalls[0]?.body as { stream_options?: unknown } | null)?.stream_options).toBeDefined();
-    expect((streamCalls[1]?.body as { stream_options?: unknown } | null)?.stream_options).toBeUndefined();
+    expect(
+      (streamCalls[0]?.body as { stream_options?: unknown } | null)
+        ?.stream_options,
+    ).toBeDefined();
+    expect(
+      (streamCalls[1]?.body as { stream_options?: unknown } | null)
+        ?.stream_options,
+    ).toBeUndefined();
 
     const usage = await readJson<{
-      rows: { estimated: boolean; promptTokens: number; completionTokens: number; status: number }[];
+      rows: {
+        estimated: boolean;
+        promptTokens: number;
+        completionTokens: number;
+        status: number;
+      }[];
     }>(await adminRequest(app, "/api/admin/usage?pageSize=1"));
     const row = usage.rows[0];
     expect(row?.status).toBe(200);

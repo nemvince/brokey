@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { ProviderDetailDTO, SyncField, SyncPreview } from "../../shared/types.ts";
+import type {
+  ProviderDetailDTO,
+  SyncField,
+  SyncPreview,
+} from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
 import { Badge, Banner, Button, Modal, showToast } from "./ui.tsx";
 
@@ -26,11 +30,21 @@ export function SyncPreviewDialog(props: {
     })),
   );
   const [missing, setMissing] = useState<Record<number, MissingAction>>(() =>
-    Object.fromEntries(props.preview.missing.map((row) => [row.modelId, "keep" as MissingAction])),
-  );
-  const [resolutions, setResolutions] = useState<Record<string, "local" | "upstream">>(() =>
     Object.fromEntries(
-      props.preview.conflicts.map((row) => [`${row.modelId}:${row.field}`, "local" as const]),
+      props.preview.missing.map((row) => [
+        row.modelId,
+        "keep" as MissingAction,
+      ]),
+    ),
+  );
+  const [resolutions, setResolutions] = useState<
+    Record<string, "local" | "upstream">
+  >(() =>
+    Object.fromEntries(
+      props.preview.conflicts.map((row) => [
+        `${row.modelId}:${row.field}`,
+        "local" as const,
+      ]),
     ),
   );
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +56,10 @@ export function SyncPreviewDialog(props: {
     const body = {
       added: added
         .filter((row) => row.selected && row.publicId.trim() !== "")
-        .map((row) => ({ upstreamId: row.upstreamId, publicId: row.publicId.trim() })),
+        .map((row) => ({
+          upstreamId: row.upstreamId,
+          publicId: row.publicId.trim(),
+        })),
       missing: props.preview.missing.map((row) => ({
         modelId: row.modelId,
         action: missing[row.modelId] ?? "keep",
@@ -53,10 +70,13 @@ export function SyncPreviewDialog(props: {
         choice: resolutions[`${row.modelId}:${row.field}`] ?? "local",
       })),
     };
-    adminFetch<ProviderDetailDTO>(`/api/admin/providers/${props.providerId}/models/apply`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    })
+    adminFetch<ProviderDetailDTO>(
+      `/api/admin/providers/${props.providerId}/models/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    )
       .then((detail) => {
         setBusy(false);
         showToast("Models synced.");
@@ -71,7 +91,10 @@ export function SyncPreviewDialog(props: {
   const setAllUpstream = () => {
     setResolutions(
       Object.fromEntries(
-        props.preview.conflicts.map((row) => [`${row.modelId}:${row.field}`, "upstream" as const]),
+        props.preview.conflicts.map((row) => [
+          `${row.modelId}:${row.field}`,
+          "upstream" as const,
+        ]),
       ),
     );
   };
@@ -128,7 +151,10 @@ export function SyncPreviewDialog(props: {
                     }}
                   />
                   {row.aliasConflict ? (
-                    <span className="warn-icon" title="That name was taken; a suffix was added.">
+                    <span
+                      className="warn-icon"
+                      title="That name was taken; a suffix was added."
+                    >
                       !
                     </span>
                   ) : null}
@@ -158,7 +184,10 @@ export function SyncPreviewDialog(props: {
                   aria-label={`Action for ${row.publicId}`}
                   value={missing[row.modelId] ?? "keep"}
                   onChange={(event) =>
-                    setMissing({ ...missing, [row.modelId]: event.target.value as MissingAction })
+                    setMissing({
+                      ...missing,
+                      [row.modelId]: event.target.value as MissingAction,
+                    })
                   }
                 >
                   <option value="keep">Keep</option>
@@ -189,7 +218,13 @@ export function SyncPreviewDialog(props: {
               const key = `${row.modelId}:${row.field}`;
               const choice = resolutions[key] ?? "local";
               return (
-                <div key={key} style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                <div
+                  key={key}
+                  style={{
+                    borderTop: "1px solid var(--border)",
+                    paddingTop: 8,
+                  }}
+                >
                   <div className="small">
                     <span className="mono">{row.publicId}</span>
                     <span className="muted"> · {FIELD_LABELS[row.field]}</span>
@@ -210,7 +245,9 @@ export function SyncPreviewDialog(props: {
                         type="radio"
                         name={`resolution-${key}`}
                         checked={choice === "local"}
-                        onChange={() => setResolutions({ ...resolutions, [key]: "local" })}
+                        onChange={() =>
+                          setResolutions({ ...resolutions, [key]: "local" })
+                        }
                       />
                       Keep mine
                     </label>
@@ -219,7 +256,9 @@ export function SyncPreviewDialog(props: {
                         type="radio"
                         name={`resolution-${key}`}
                         checked={choice === "upstream"}
-                        onChange={() => setResolutions({ ...resolutions, [key]: "upstream" })}
+                        onChange={() =>
+                          setResolutions({ ...resolutions, [key]: "upstream" })
+                        }
                       />
                       Use provider
                     </label>
@@ -232,8 +271,11 @@ export function SyncPreviewDialog(props: {
       </section>
 
       <p className="small muted">
-        {props.preview.matched.length} models checked, {metadataUpdates} metadata updates.{" "}
-        <Badge tone="muted">{new Date(props.preview.fetchedAt).toISOString().slice(11, 19)} UTC</Badge>
+        {props.preview.matched.length} models checked, {metadataUpdates}{" "}
+        metadata updates.{" "}
+        <Badge tone="muted">
+          {new Date(props.preview.fetchedAt).toISOString().slice(11, 19)} UTC
+        </Badge>
       </p>
     </Modal>
   );

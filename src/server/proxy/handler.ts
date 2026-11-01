@@ -44,8 +44,20 @@ export type ProxyCtx = { db: AppDb };
 const HEADER_TIMEOUT_MS = 120_000;
 const NON_STREAM_TIMEOUT_MS = 120_000;
 
-const HOP_BY_HOP = ["connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"];
-const DROP_REQUEST_HEADERS = ["host", "authorization", "content-length", "accept-encoding"];
+const HOP_BY_HOP = [
+  "connection",
+  "keep-alive",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+];
+const DROP_REQUEST_HEADERS = [
+  "host",
+  "authorization",
+  "content-length",
+  "accept-encoding",
+];
 const DROP_RESPONSE_HEADERS = [
   "content-encoding",
   "content-length",
@@ -53,7 +65,12 @@ const DROP_RESPONSE_HEADERS = [
   "connection",
   "set-cookie",
 ];
-const STRICT_JSON_PREFIXES = ["/v1/chat/completions", "/v1/responses", "/v1/embeddings", "/v1/images/"];
+const STRICT_JSON_PREFIXES = [
+  "/v1/chat/completions",
+  "/v1/responses",
+  "/v1/embeddings",
+  "/v1/images/",
+];
 
 /** Provider keys currently handling a request; used only to de-prioritise them. */
 const busyKeys = new Set<number>();
@@ -92,7 +109,8 @@ function endpointKind(pathname: string): EndpointKind {
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return null;
   const record: Record<string, unknown> = value as Record<string, unknown>;
   return record;
 }
@@ -104,7 +122,10 @@ function jsonError(
   code: string | null = null,
   headers?: HeadersInit,
 ): Response {
-  return Response.json({ error: { message, type, param: null, code } }, { status, headers });
+  return Response.json(
+    { error: { message, type, param: null, code } },
+    { status, headers },
+  );
 }
 
 function modelNotFound(publicId: string): Response {
@@ -119,22 +140,33 @@ function modelNotFound(publicId: string): Response {
 function forwardHeaders(upstream: HeadersInit): Headers {
   const headers = new Headers();
   new Headers(upstream).forEach((value, name) => {
-    if (!DROP_RESPONSE_HEADERS.includes(name.toLowerCase())) headers.set(name, value);
+    if (!DROP_RESPONSE_HEADERS.includes(name.toLowerCase()))
+      headers.set(name, value);
   });
   return headers;
 }
 
-function decorate(headers: Headers, requestId: string, limitHeaders: Record<string, string>): Headers {
+function decorate(
+  headers: Headers,
+  requestId: string,
+  limitHeaders: Record<string, string>,
+): Headers {
   headers.set("x-brokey-request-id", requestId);
-  for (const [name, value] of Object.entries(limitHeaders)) headers.set(name, value);
+  for (const [name, value] of Object.entries(limitHeaders))
+    headers.set(name, value);
   return headers;
 }
 
-function buildUpstreamHeaders(req: Request, secret: string, extra: Record<string, string> | null): Headers {
+function buildUpstreamHeaders(
+  req: Request,
+  secret: string,
+  extra: Record<string, string> | null,
+): Headers {
   const headers = new Headers();
   req.headers.forEach((value, name) => {
     const lower = name.toLowerCase();
-    if (HOP_BY_HOP.includes(lower) || DROP_REQUEST_HEADERS.includes(lower)) return;
+    if (HOP_BY_HOP.includes(lower) || DROP_REQUEST_HEADERS.includes(lower))
+      return;
     if (lower.startsWith("proxy-") || lower.startsWith("x-brokey-")) return;
     headers.set(name, value);
   });
@@ -161,7 +193,10 @@ function parseExtraHeaders(raw: string | null): Record<string, string> | null {
   }
 }
 
-function estimatePromptTokens(kind: EndpointKind, payload: Record<string, unknown> | null): number {
+function estimatePromptTokens(
+  kind: EndpointKind,
+  payload: Record<string, unknown> | null,
+): number {
   if (!payload) return 0;
   if (kind === "chat") return estimateChatPromptTokens(payload.messages);
   if (kind === "responses") return estimateResponsesPromptTokens(payload.input);
@@ -173,7 +208,13 @@ function listModelCatalog(db: AppDb): Response {
     .select({ model: models, providerName: providers.name })
     .from(models)
     .innerJoin(providers, eq(models.providerId, providers.id))
-    .where(and(eq(models.enabled, true), eq(models.upstreamAvailable, true), eq(providers.enabled, true)))
+    .where(
+      and(
+        eq(models.enabled, true),
+        eq(models.upstreamAvailable, true),
+        eq(providers.enabled, true),
+      ),
+    )
     .all();
   const data = rows.map(({ model, providerName }) => ({
     id: model.publicId,
@@ -203,7 +244,9 @@ function getModelCatalog(db: AppDb, publicId: string): Response {
   return Response.json({
     id: row.model.publicId,
     object: "model",
-    created: Math.floor((row.model.upstreamCreatedAt ?? row.model.createdAt) / 1000),
+    created: Math.floor(
+      (row.model.upstreamCreatedAt ?? row.model.createdAt) / 1000,
+    ),
     owned_by: row.providerName,
   });
 }
@@ -253,7 +296,8 @@ function resolveUsage(
   completionText: string,
 ): { usage: TokenUsage; estimated: boolean } {
   if (observed) return { usage: observed, estimated: false };
-  if (kind !== "chat" && kind !== "responses") return { usage: EMPTY_USAGE, estimated: false };
+  if (kind !== "chat" && kind !== "responses")
+    return { usage: EMPTY_USAGE, estimated: false };
   const completionTokens = estimateTokens(completionText);
   return {
     usage: {
@@ -265,7 +309,10 @@ function resolveUsage(
   };
 }
 
-export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response> {
+export async function handleProxy(
+  req: Request,
+  ctx: ProxyCtx,
+): Promise<Response> {
   const db = ctx.db;
   const startedAt = Date.now();
   const requestId = `req_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -275,11 +322,18 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
   const auth = authenticateClient(req, db);
   if (!auth.ok) return auth.response;
   const clientKey = auth.key;
-  db.update(clientKeys).set({ lastUsedAt: startedAt }).where(eq(clientKeys.id, clientKey.id)).run();
+  db.update(clientKeys)
+    .set({ lastUsedAt: startedAt })
+    .where(eq(clientKeys.id, clientKey.id))
+    .run();
 
-  if (req.method === "GET" && pathname === "/v1/models") return listModelCatalog(db);
+  if (req.method === "GET" && pathname === "/v1/models")
+    return listModelCatalog(db);
   if (req.method === "GET" && pathname.startsWith("/v1/models/")) {
-    return getModelCatalog(db, decodeURIComponent(pathname.slice("/v1/models/".length)));
+    return getModelCatalog(
+      db,
+      decodeURIComponent(pathname.slice("/v1/models/".length)),
+    );
   }
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
@@ -292,38 +346,79 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
       payload = objectValue(JSON.parse(new TextDecoder().decode(rawBody)));
     } catch {
       if (STRICT_JSON_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-        return jsonError(400, "We could not parse the JSON body of your request.", "invalid_request_error");
+        return jsonError(
+          400,
+          "We could not parse the JSON body of your request.",
+          "invalid_request_error",
+        );
       }
     }
   }
 
   let model: ModelRow | null = null;
   let provider: ProviderRow | null = null;
-  const requestedModel = payload && typeof payload.model === "string" ? payload.model : null;
+  const requestedModel =
+    payload && typeof payload.model === "string" ? payload.model : null;
 
   if (requestedModel) {
-    const row = db.select().from(models).where(eq(models.publicId, requestedModel)).get();
-    if (!row || !row.enabled || !row.upstreamAvailable) return modelNotFound(requestedModel);
-    const providerRow = db.select().from(providers).where(eq(providers.id, row.providerId)).get();
+    const row = db
+      .select()
+      .from(models)
+      .where(eq(models.publicId, requestedModel))
+      .get();
+    if (!row || !row.enabled || !row.upstreamAvailable)
+      return modelNotFound(requestedModel);
+    const providerRow = db
+      .select()
+      .from(providers)
+      .where(eq(providers.id, row.providerId))
+      .get();
     if (!providerRow) return modelNotFound(requestedModel);
     if (!providerRow.enabled) {
-      return jsonError(503, `Provider "${providerRow.name}" is disabled.`, "api_error", "provider_unavailable");
+      return jsonError(
+        503,
+        `Provider "${providerRow.name}" is disabled.`,
+        "api_error",
+        "provider_unavailable",
+      );
     }
     model = row;
     provider = providerRow;
   } else {
-    const selector = (req.headers.get("x-brokey-provider") ?? url.searchParams.get("provider") ?? "").trim();
+    const selector = (
+      req.headers.get("x-brokey-provider") ??
+      url.searchParams.get("provider") ??
+      ""
+    ).trim();
     if (selector !== "") {
-      const providerRow = db.select().from(providers).where(eq(providers.name, selector)).get();
+      const providerRow = db
+        .select()
+        .from(providers)
+        .where(eq(providers.name, selector))
+        .get();
       if (!providerRow) {
-        return jsonError(400, `Unknown provider "${selector}".`, "invalid_request_error", "invalid_provider");
+        return jsonError(
+          400,
+          `Unknown provider "${selector}".`,
+          "invalid_request_error",
+          "invalid_provider",
+        );
       }
       if (!providerRow.enabled) {
-        return jsonError(503, `Provider "${providerRow.name}" is disabled.`, "api_error", "provider_unavailable");
+        return jsonError(
+          503,
+          `Provider "${providerRow.name}" is disabled.`,
+          "api_error",
+          "provider_unavailable",
+        );
       }
       provider = providerRow;
     } else {
-      const enabledProviders = db.select().from(providers).where(eq(providers.enabled, true)).all();
+      const enabledProviders = db
+        .select()
+        .from(providers)
+        .where(eq(providers.enabled, true))
+        .all();
       if (enabledProviders.length !== 1) {
         return jsonError(
           400,
@@ -339,12 +434,26 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
   const kind = endpointKind(pathname);
   const estimatedPromptTokens = estimatePromptTokens(kind, payload);
 
-  const windowUsage = usageForWindow(db, clientKey.id, clientKey.limitWindow as LimitWindow, startedAt);
+  const windowUsage = usageForWindow(
+    db,
+    clientKey.id,
+    clientKey.limitWindow as LimitWindow,
+    startedAt,
+  );
   const violation = checkLimits(clientKey, windowUsage);
   if (violation) {
-    return jsonError(429, violation.message, "insufficient_quota", "usage_limit_exceeded");
+    return jsonError(
+      429,
+      violation.message,
+      "insufficient_quota",
+      "usage_limit_exceeded",
+    );
   }
-  const limitHeaders = remainingHeaders(clientKey, windowUsage, estimatedPromptTokens);
+  const limitHeaders = remainingHeaders(
+    clientKey,
+    windowUsage,
+    estimatedPromptTokens,
+  );
 
   const pool = selectCandidates(db, provider.id, startedAt, busyKeys);
   if (!pool.hasEnabledKeys) {
@@ -370,11 +479,16 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
 
   // Body after optional model rewriting; the version without `stream_options` is
   // kept for the fallback retry when an upstream rejects the injected option.
-  const bodyBase = payload && model
-    ? new TextEncoder().encode(JSON.stringify({ ...payload, model: model.upstreamId }))
-    : rawBody;
-  const requestPayload = payload && model ? { ...payload, model: model.upstreamId } : payload;
-  const streamingRequest = kind === "chat" && req.method === "POST" && requestPayload?.stream === true;
+  const bodyBase =
+    payload && model
+      ? new TextEncoder().encode(
+          JSON.stringify({ ...payload, model: model.upstreamId }),
+        )
+      : rawBody;
+  const requestPayload =
+    payload && model ? { ...payload, model: model.upstreamId } : payload;
+  const streamingRequest =
+    kind === "chat" && req.method === "POST" && requestPayload?.stream === true;
 
   let injectedUsage = false;
   let clientWantedUsage = false;
@@ -383,7 +497,10 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
     if (options?.include_usage === true) {
       clientWantedUsage = true;
     } else {
-      requestPayload.stream_options = { ...(options ?? {}), include_usage: true };
+      requestPayload.stream_options = {
+        ...(options ?? {}),
+        include_usage: true,
+      };
       injectedUsage = true;
     }
   }
@@ -394,7 +511,12 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
   const upstream = upstreamUrl(provider.baseUrl, pathname, url.search);
   const extraHeaders = parseExtraHeaders(provider.extraHeaders);
 
-  let lastFailure: { status: number; body: string; code: string; headers: Headers } | null = null;
+  let lastFailure: {
+    status: number;
+    body: string;
+    code: string;
+    headers: Headers;
+  } | null = null;
   let lastMessage = "";
   let cooledAny = false;
   let upstreamLatencyMs: number | null = null;
@@ -423,8 +545,12 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
       let headerTimer: ReturnType<typeof setTimeout> | undefined;
       const signal = streamingRequest
         ? AbortSignal.any([controller.signal, req.signal])
-        : AbortSignal.any([AbortSignal.timeout(NON_STREAM_TIMEOUT_MS), req.signal]);
-      if (streamingRequest) headerTimer = setTimeout(() => controller.abort(), HEADER_TIMEOUT_MS);
+        : AbortSignal.any([
+            AbortSignal.timeout(NON_STREAM_TIMEOUT_MS),
+            req.signal,
+          ]);
+      if (streamingRequest)
+        headerTimer = setTimeout(() => controller.abort(), HEADER_TIMEOUT_MS);
 
       const attemptStarted = Date.now();
       let response: Response;
@@ -453,7 +579,12 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
               estimated: true,
             }),
           );
-          return jsonError(499, "Client closed request.", "api_error", "client_aborted");
+          return jsonError(
+            499,
+            "Client closed request.",
+            "api_error",
+            "client_aborted",
+          );
         }
         const message = error instanceof Error ? error.message : String(error);
         lastMessage = `Upstream request failed: ${message}`;
@@ -462,7 +593,8 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
         continue;
       }
       clearTimeout(headerTimer);
-      if (upstreamLatencyMs === null) upstreamLatencyMs = Date.now() - attemptStarted;
+      if (upstreamLatencyMs === null)
+        upstreamLatencyMs = Date.now() - attemptStarted;
 
       attemptCtx.upstreamLatencyMs = upstreamLatencyMs;
 
@@ -474,13 +606,17 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
             method: req.method,
             headers,
             body: bodyBase ?? undefined,
-            signal: AbortSignal.any([AbortSignal.timeout(HEADER_TIMEOUT_MS), req.signal]),
+            signal: AbortSignal.any([
+              AbortSignal.timeout(HEADER_TIMEOUT_MS),
+              req.signal,
+            ]),
             redirect: "manual",
           });
           injectedUsage = false;
           clientWantedUsage = false;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           lastMessage = `Upstream request failed: ${message}`;
           recordKeyFailure(db, key.id, networkFailure(), lastMessage);
           cooledAny = true;
@@ -493,15 +629,31 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
           .clone()
           .text()
           .catch(() => "");
-        const failure = classifyHttpFailure(response.status, text, response.headers.get("retry-after"));
+        const failure = classifyHttpFailure(
+          response.status,
+          text,
+          response.headers.get("retry-after"),
+        );
         if (failure.retryable) {
-          recordKeyFailure(db, key.id, failure, `HTTP ${response.status}: ${text.slice(0, 400)}`);
+          recordKeyFailure(
+            db,
+            key.id,
+            failure,
+            `HTTP ${response.status}: ${text.slice(0, 400)}`,
+          );
           cooledAny = true;
-          lastFailure = { status: response.status, body: text, code: failure.errorCode, headers: response.headers };
+          lastFailure = {
+            status: response.status,
+            body: text,
+            code: failure.errorCode,
+            headers: response.headers,
+          };
           continue;
         }
         recordKeySuccess(db, key.id);
-        const bytes = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
+        const bytes = await response
+          .arrayBuffer()
+          .catch(() => new ArrayBuffer(0));
         writeUsageLog(
           db,
           logFor(attemptCtx, {
@@ -515,7 +667,11 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
         return new Response(bytes, {
           status: response.status,
           statusText: response.statusText,
-          headers: decorate(forwardHeaders(response.headers), requestId, limitHeaders),
+          headers: decorate(
+            forwardHeaders(response.headers),
+            requestId,
+            limitHeaders,
+          ),
         });
       }
 
@@ -549,8 +705,19 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
             estimated: true,
           }),
         );
-        if (aborted) return jsonError(499, "Client closed request.", "api_error", "client_aborted");
-        return jsonError(504, `Upstream response failed: ${message}`, "api_error", "timeout");
+        if (aborted)
+          return jsonError(
+            499,
+            "Client closed request.",
+            "api_error",
+            "client_aborted",
+          );
+        return jsonError(
+          504,
+          `Upstream response failed: ${message}`,
+          "api_error",
+          "timeout",
+        );
       }
 
       const parsed = parseJsonBytes(bytes);
@@ -561,7 +728,12 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
           : kind === "responses"
             ? extractResponsesOutputText(parsed)
             : "";
-      const resolved = resolveUsage(kind, observed, estimatedPromptTokens, completionText);
+      const resolved = resolveUsage(
+        kind,
+        observed,
+        estimatedPromptTokens,
+        completionText,
+      );
       writeUsageLog(
         db,
         logFor(attemptCtx, {
@@ -575,7 +747,11 @@ export async function handleProxy(req: Request, ctx: ProxyCtx): Promise<Response
       return new Response(bytes, {
         status: response.status,
         statusText: response.statusText,
-        headers: decorate(forwardHeaders(response.headers), requestId, limitHeaders),
+        headers: decorate(
+          forwardHeaders(response.headers),
+          requestId,
+          limitHeaders,
+        ),
       });
     } finally {
       busyKeys.delete(key.id);
@@ -614,9 +790,17 @@ function observedUsage(kind: EndpointKind, parsed: unknown): TokenUsage | null {
   return null;
 }
 
-type StreamOptions = { injectedUsage: boolean; clientWantedUsage: boolean; streaming: boolean };
+type StreamOptions = {
+  injectedUsage: boolean;
+  clientWantedUsage: boolean;
+  streaming: boolean;
+};
 
-function streamResponse(response: Response, ctx: AttemptContext, options: StreamOptions): Response {
+function streamResponse(
+  response: Response,
+  ctx: AttemptContext,
+  options: StreamOptions,
+): Response {
   const sse = isEventStream(response.headers.get("content-type"));
   const reader = response.body!.getReader();
   const splitter = new SseSplitter();
@@ -628,7 +812,12 @@ function streamResponse(response: Response, ctx: AttemptContext, options: Stream
   const record = (status: number, errorCode: string | null) => {
     if (logged) return;
     logged = true;
-    const resolved = resolveUsage(ctx.kind, observed, ctx.estimatedPromptTokens, text);
+    const resolved = resolveUsage(
+      ctx.kind,
+      observed,
+      ctx.estimatedPromptTokens,
+      text,
+    );
     writeUsageLog(
       ctx.db,
       logFor(ctx, {
@@ -668,8 +857,11 @@ function streamResponse(response: Response, ctx: AttemptContext, options: Stream
             const chunk = parseEventJson(frame.raw);
             collect(chunk);
             const drop =
-              options.injectedUsage && !options.clientWantedUsage && hasUsageChunkOnly(chunk);
-            if (!drop) controller.enqueue(encoder.encode(frame.raw + frame.separator));
+              options.injectedUsage &&
+              !options.clientWantedUsage &&
+              hasUsageChunkOnly(chunk);
+            if (!drop)
+              controller.enqueue(encoder.encode(frame.raw + frame.separator));
           }
         }
         if (sse) {
@@ -677,15 +869,21 @@ function streamResponse(response: Response, ctx: AttemptContext, options: Stream
             const chunk = parseEventJson(frame.raw);
             collect(chunk);
             const drop =
-              options.injectedUsage && !options.clientWantedUsage && hasUsageChunkOnly(chunk);
-            if (!drop) controller.enqueue(encoder.encode(frame.raw + frame.separator));
+              options.injectedUsage &&
+              !options.clientWantedUsage &&
+              hasUsageChunkOnly(chunk);
+            if (!drop)
+              controller.enqueue(encoder.encode(frame.raw + frame.separator));
           }
         }
         controller.close();
         record(response.status, null);
       } catch (error) {
         const aborted = isAbort(error);
-        record(aborted ? 499 : 502, aborted ? "client_aborted" : "stream_error");
+        record(
+          aborted ? 499 : 502,
+          aborted ? "client_aborted" : "stream_error",
+        );
         try {
           controller.error(error);
         } catch {
@@ -702,7 +900,11 @@ function streamResponse(response: Response, ctx: AttemptContext, options: Stream
   return new Response(stream, {
     status: response.status,
     statusText: response.statusText,
-    headers: decorate(forwardHeaders(response.headers), ctx.requestId, ctx.limitHeaders),
+    headers: decorate(
+      forwardHeaders(response.headers),
+      ctx.requestId,
+      ctx.limitHeaders,
+    ),
   });
 }
 
@@ -710,7 +912,9 @@ function isAbort(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   if ("name" in error && error.name === "AbortError") return true;
   if ("message" in error && typeof error.message === "string") {
-    return error.message.includes("aborted") || error.message.includes("closed");
+    return (
+      error.message.includes("aborted") || error.message.includes("closed")
+    );
   }
   return false;
 }
@@ -726,7 +930,12 @@ type FailedAttemptSummary = {
   startedAt: number;
   upstreamLatencyMs: number | null;
   limitHeaders: Record<string, string>;
-  lastFailure: { status: number; body: string; code: string; headers: Headers } | null;
+  lastFailure: {
+    status: number;
+    body: string;
+    code: string;
+    headers: Headers;
+  } | null;
   lastMessage: string;
   cooledAny: boolean;
 };
@@ -734,7 +943,9 @@ type FailedAttemptSummary = {
 function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
   const fallbackStatus = summary.cooledAny ? 429 : 502;
   const status = summary.lastFailure?.status ?? fallbackStatus;
-  const errorCode = summary.lastFailure?.code ?? (summary.cooledAny ? "all_keys_exhausted" : "upstream_unavailable");
+  const errorCode =
+    summary.lastFailure?.code ??
+    (summary.cooledAny ? "all_keys_exhausted" : "upstream_unavailable");
 
   writeUsageLog(db, {
     requestId: summary.requestId,
@@ -762,7 +973,11 @@ function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
   if (summary.lastFailure) {
     return new Response(summary.lastFailure.body, {
       status: summary.lastFailure.status,
-      headers: decorate(forwardHeaders(summary.lastFailure.headers), summary.requestId, summary.limitHeaders),
+      headers: decorate(
+        forwardHeaders(summary.lastFailure.headers),
+        summary.requestId,
+        summary.limitHeaders,
+      ),
     });
   }
   if (summary.cooledAny) {
@@ -771,7 +986,11 @@ function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
       "All API keys for this provider are temporarily unavailable.",
       "rate_limit_error",
       "all_keys_exhausted",
-      { "retry-after": "60", ...summary.limitHeaders, "x-brokey-request-id": summary.requestId },
+      {
+        "retry-after": "60",
+        ...summary.limitHeaders,
+        "x-brokey-request-id": summary.requestId,
+      },
     );
   }
   return jsonError(

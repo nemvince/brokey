@@ -39,7 +39,8 @@ function AdminShell(props: {
           {NAV.map((item) => {
             const active =
               item.href === "/admin"
-                ? props.pathname === "/admin" || /^\/admin\/providers\/\d+$/.test(props.pathname)
+                ? props.pathname === "/admin" ||
+                  /^\/admin\/providers\/\d+$/.test(props.pathname)
                 : props.pathname.startsWith(item.href);
             return (
               <a
@@ -68,7 +69,11 @@ function AdminShell(props: {
           >
             Public stats
           </a>
-          <button type="button" className="btn btn-ghost btn-small" onClick={props.onSignOut}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            onClick={props.onSignOut}
+          >
             Sign out
           </button>
         </div>
@@ -86,7 +91,8 @@ function AdminArea(props: { pathname: string }) {
   useEffect(() => {
     const onUnauthorized = () => setToken(null);
     window.addEventListener("brokey:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("brokey:unauthorized", onUnauthorized);
+    return () =>
+      window.removeEventListener("brokey:unauthorized", onUnauthorized);
   }, []);
 
   if (!token) {
@@ -107,7 +113,8 @@ function AdminArea(props: { pathname: string }) {
 
   const detailMatch = /^\/admin\/providers\/(\d+)$/.exec(props.pathname);
   let page: React.ReactNode;
-  if (detailMatch) page = <ProviderDetailPage providerId={Number(detailMatch[1])} />;
+  if (detailMatch)
+    page = <ProviderDetailPage providerId={Number(detailMatch[1])} />;
   else if (props.pathname === "/admin/models") page = <ModelsPage />;
   else if (props.pathname === "/admin/keys") page = <ClientKeysPage />;
   else if (props.pathname === "/admin/usage") page = <UsagePage />;

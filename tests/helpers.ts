@@ -24,7 +24,12 @@ export function startTestApp(): TestApp {
   };
 }
 
-export type MockCall = { path: string; method: string; auth: string; body: unknown };
+export type MockCall = {
+  path: string;
+  method: string;
+  auth: string;
+  body: unknown;
+};
 
 export type MockUpstream = {
   baseUrl: string;
@@ -36,12 +41,19 @@ export type MockUpstream = {
   stop: () => void;
 };
 
-export function startMockUpstream(options: { models?: unknown[] } = {}): MockUpstream {
+export function startMockUpstream(
+  options: { models?: unknown[] } = {},
+): MockUpstream {
   const state: MockUpstream = {
     baseUrl: "",
     calls: [],
     models: options.models ?? [
-      { id: "upstream-mock-chat", name: "Mock Chat", context_length: 128000, owned_by: "mock" },
+      {
+        id: "upstream-mock-chat",
+        name: "Mock Chat",
+        context_length: 128000,
+        owned_by: "mock",
+      },
       { id: "gpt-x", name: "GPT X", context_length: 32000 },
     ],
     chatHandler: null,
@@ -66,7 +78,9 @@ export function startMockUpstream(options: { models?: unknown[] } = {}): MockUps
         "",
         "",
       ];
-      return new Response(lines.join("\n"), { headers: { "content-type": "text/event-stream" } });
+      return new Response(lines.join("\n"), {
+        headers: { "content-type": "text/event-stream" },
+      });
     }
     return Response.json({
       id: "cmpl-1",
@@ -90,7 +104,12 @@ export function startMockUpstream(options: { models?: unknown[] } = {}): MockUps
           body = raw;
         }
       }
-      const call: MockCall = { path: url.pathname, method: req.method, auth, body };
+      const call: MockCall = {
+        path: url.pathname,
+        method: req.method,
+        auth,
+        body,
+      };
       state.calls.push(call);
 
       if (url.pathname === "/v1/models") {
@@ -103,7 +122,10 @@ export function startMockUpstream(options: { models?: unknown[] } = {}): MockUps
         if (custom) return custom;
         return defaultChat(call);
       }
-      return Response.json({ error: { message: "not found" } }, { status: 404 });
+      return Response.json(
+        { error: { message: "not found" } },
+        { status: 404 },
+      );
     },
   });
 
@@ -112,7 +134,12 @@ export function startMockUpstream(options: { models?: unknown[] } = {}): MockUps
   return state;
 }
 
-type RequestOptions = { token?: string; body?: unknown; method?: string; raw?: string };
+type RequestOptions = {
+  token?: string;
+  body?: unknown;
+  method?: string;
+  raw?: string;
+};
 
 function init(options: RequestOptions, auth: string | null): RequestInit {
   const headers = new Headers();
@@ -123,7 +150,11 @@ function init(options: RequestOptions, auth: string | null): RequestInit {
   }
   if (options.body !== undefined) {
     headers.set("content-type", "application/json");
-    return { method: options.method ?? "POST", headers, body: JSON.stringify(options.body) };
+    return {
+      method: options.method ?? "POST",
+      headers,
+      body: JSON.stringify(options.body),
+    };
   }
   return { method: options.method ?? "GET", headers };
 }
@@ -134,7 +165,10 @@ export async function adminRequest(
   options: RequestOptions = {},
 ): Promise<Response> {
   const token = options.token ?? ADMIN_TOKEN;
-  return fetch(`${app.baseUrl}${path}`, init(options, token === "" ? null : `Bearer ${token}`));
+  return fetch(
+    `${app.baseUrl}${path}`,
+    init(options, token === "" ? null : `Bearer ${token}`),
+  );
 }
 
 export async function adminJson<T = Record<string, unknown>>(
@@ -174,15 +208,30 @@ export async function seedProvider(
     enabled?: boolean;
   },
 ): Promise<SeededProvider> {
-  const name = options.name ?? `provider-${Math.random().toString(36).slice(2, 8)}`;
-  const provider = await adminJson<{ id: number }>(app, "/api/admin/providers", {
-    body: { name, baseUrl: options.baseUrl, enabled: options.enabled ?? true },
-  });
+  const name =
+    options.name ?? `provider-${Math.random().toString(36).slice(2, 8)}`;
+  const provider = await adminJson<{ id: number }>(
+    app,
+    "/api/admin/providers",
+    {
+      body: {
+        name,
+        baseUrl: options.baseUrl,
+        enabled: options.enabled ?? true,
+      },
+    },
+  );
   const keyIds: number[] = [];
-  for (const [index, secret] of (options.secrets ?? ["sk-test-key-a"]).entries()) {
-    const key = await adminJson<{ id: number }>(app, `/api/admin/providers/${provider.id}/keys`, {
-      body: { label: `key-${index + 1}`, secret },
-    });
+  for (const [index, secret] of (
+    options.secrets ?? ["sk-test-key-a"]
+  ).entries()) {
+    const key = await adminJson<{ id: number }>(
+      app,
+      `/api/admin/providers/${provider.id}/keys`,
+      {
+        body: { label: `key-${index + 1}`, secret },
+      },
+    );
     keyIds.push(key.id);
   }
   return { providerId: provider.id, keyIds, name };
@@ -191,7 +240,12 @@ export async function seedProvider(
 export async function seedModel(
   app: TestApp,
   providerId: number,
-  model: { upstreamId: string; publicId: string; displayName?: string; enabled?: boolean },
+  model: {
+    upstreamId: string;
+    publicId: string;
+    displayName?: string;
+    enabled?: boolean;
+  },
 ): Promise<{ id: number; publicId: string }> {
   return adminJson<{ id: number; publicId: string }>(app, "/api/admin/models", {
     body: { providerId, ...model },
@@ -207,9 +261,13 @@ export async function seedClientKey(
     limitTokens?: number | null;
   } = {},
 ): Promise<{ id: number; token: string }> {
-  const created = await adminJson<{ id: number; key: string }>(app, "/api/admin/client-keys", {
-    body: { name: body.name ?? "test-key", ...body },
-  });
+  const created = await adminJson<{ id: number; key: string }>(
+    app,
+    "/api/admin/client-keys",
+    {
+      body: { name: body.name ?? "test-key", ...body },
+    },
+  );
   return { id: created.id, token: created.key };
 }
 

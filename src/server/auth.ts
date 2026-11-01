@@ -25,7 +25,12 @@ export function assertAdmin(req: Request, adminToken: string): AdminAuth {
     return {
       ok: false,
       response: Response.json(
-        { error: { message: "Admin is disabled: set ADMIN_TOKEN on the server.", code: "admin_disabled" } },
+        {
+          error: {
+            message: "Admin is disabled: set ADMIN_TOKEN on the server.",
+            code: "admin_disabled",
+          },
+        },
         { status: 503 },
       ),
     };
@@ -57,22 +62,41 @@ export function authenticateClient(
   if (!token) {
     return {
       ok: false,
-      response: openaiAuthError("Missing bearer token in Authorization header."),
+      response: openaiAuthError(
+        "Missing bearer token in Authorization header.",
+      ),
     };
   }
-  const key = db.select().from(clientKeys).where(eq(clientKeys.keyHash, hashClientToken(token))).get();
+  const key = db
+    .select()
+    .from(clientKeys)
+    .where(eq(clientKeys.keyHash, hashClientToken(token)))
+    .get();
   if (!key) {
-    return { ok: false, response: openaiAuthError("Incorrect API key provided.") };
+    return {
+      ok: false,
+      response: openaiAuthError("Incorrect API key provided."),
+    };
   }
   if (!key.enabled) {
-    return { ok: false, response: openaiAuthError("This API key has been disabled.") };
+    return {
+      ok: false,
+      response: openaiAuthError("This API key has been disabled."),
+    };
   }
   return { ok: true, key };
 }
 
 function openaiAuthError(message: string): Response {
   return Response.json(
-    { error: { message, type: "authentication_error", param: null, code: "invalid_api_key" } },
+    {
+      error: {
+        message,
+        type: "authentication_error",
+        param: null,
+        code: "invalid_api_key",
+      },
+    },
     { status: 401 },
   );
 }

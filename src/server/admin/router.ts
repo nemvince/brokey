@@ -34,13 +34,37 @@ type Handler = (ctx: AdminCtx) => Response | Promise<Response>;
 type Route = { method: string; pattern: RegExp; handler: Handler };
 
 const routes: Route[] = [
-  { method: "GET", pattern: /^\/api\/admin\/me$/, handler: () => json({ ok: true }) },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/me$/,
+    handler: () => json({ ok: true }),
+  },
 
-  { method: "GET", pattern: /^\/api\/admin\/providers$/, handler: listProviders },
-  { method: "POST", pattern: /^\/api\/admin\/providers$/, handler: createProvider },
-  { method: "GET", pattern: /^\/api\/admin\/providers\/(\d+)$/, handler: getProvider },
-  { method: "PATCH", pattern: /^\/api\/admin\/providers\/(\d+)$/, handler: updateProvider },
-  { method: "DELETE", pattern: /^\/api\/admin\/providers\/(\d+)$/, handler: deleteProvider },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/providers$/,
+    handler: listProviders,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/providers$/,
+    handler: createProvider,
+  },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/providers\/(\d+)$/,
+    handler: getProvider,
+  },
+  {
+    method: "PATCH",
+    pattern: /^\/api\/admin\/providers\/(\d+)$/,
+    handler: updateProvider,
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/admin\/providers\/(\d+)$/,
+    handler: deleteProvider,
+  },
   {
     method: "POST",
     pattern: /^\/api\/admin\/providers\/(\d+)\/keys$/,
@@ -57,8 +81,16 @@ const routes: Route[] = [
     handler: applyModels,
   },
 
-  { method: "PATCH", pattern: /^\/api\/admin\/provider-keys\/(\d+)$/, handler: updateProviderKey },
-  { method: "DELETE", pattern: /^\/api\/admin\/provider-keys\/(\d+)$/, handler: deleteProviderKey },
+  {
+    method: "PATCH",
+    pattern: /^\/api\/admin\/provider-keys\/(\d+)$/,
+    handler: updateProviderKey,
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/admin\/provider-keys\/(\d+)$/,
+    handler: deleteProviderKey,
+  },
   {
     method: "POST",
     pattern: /^\/api\/admin\/provider-keys\/(\d+)\/reset$/,
@@ -67,13 +99,37 @@ const routes: Route[] = [
 
   { method: "GET", pattern: /^\/api\/admin\/models$/, handler: listModels },
   { method: "POST", pattern: /^\/api\/admin\/models$/, handler: createModel },
-  { method: "PATCH", pattern: /^\/api\/admin\/models\/(\d+)$/, handler: updateModel },
-  { method: "DELETE", pattern: /^\/api\/admin\/models\/(\d+)$/, handler: deleteModel },
+  {
+    method: "PATCH",
+    pattern: /^\/api\/admin\/models\/(\d+)$/,
+    handler: updateModel,
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/admin\/models\/(\d+)$/,
+    handler: deleteModel,
+  },
 
-  { method: "GET", pattern: /^\/api\/admin\/client-keys$/, handler: listClientKeys },
-  { method: "POST", pattern: /^\/api\/admin\/client-keys$/, handler: createClientKey },
-  { method: "PATCH", pattern: /^\/api\/admin\/client-keys\/(\d+)$/, handler: updateClientKey },
-  { method: "DELETE", pattern: /^\/api\/admin\/client-keys\/(\d+)$/, handler: deleteClientKey },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/client-keys$/,
+    handler: listClientKeys,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/client-keys$/,
+    handler: createClientKey,
+  },
+  {
+    method: "PATCH",
+    pattern: /^\/api\/admin\/client-keys\/(\d+)$/,
+    handler: updateClientKey,
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/admin\/client-keys\/(\d+)$/,
+    handler: deleteClientKey,
+  },
 
   { method: "GET", pattern: /^\/api\/admin\/usage$/, handler: listUsage },
 ];
@@ -106,5 +162,8 @@ export async function handleAdmin(
     }
   }
 
-  return json({ error: { message: `No admin route for ${req.method} ${path}.` } }, 404);
+  return json(
+    { error: { message: `No admin route for ${req.method} ${path}.` } },
+    404,
+  );
 }

@@ -11,7 +11,9 @@ const { server } = createApp({
 });
 
 console.log(`Server running at ${server.url}`);
-console.log(`Database: ${config.dbPath === ":memory:" ? ":memory:" : resolve(config.dbPath)}`);
+console.log(
+  `Database: ${config.dbPath === ":memory:" ? ":memory:" : resolve(config.dbPath)}`,
+);
 if (config.adminToken.trim() === "") {
   console.warn(
     "ADMIN_TOKEN is empty: the admin API is disabled (503). Set ADMIN_TOKEN to manage providers and keys.",

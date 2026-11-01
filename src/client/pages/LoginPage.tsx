@@ -40,7 +40,8 @@ export function LoginPage(props: { onSignedIn: () => void }) {
       <section className="panel" style={{ marginTop: 28 }}>
         <h1 style={{ marginBottom: 6 }}>Admin sign in</h1>
         <p className="small muted">
-          Paste the token from your server&apos;s <code>ADMIN_TOKEN</code> environment variable.
+          Paste the token from your server&apos;s <code>ADMIN_TOKEN</code>{" "}
+          environment variable.
         </p>
         <form
           onSubmit={(event) => {
@@ -59,9 +60,15 @@ export function LoginPage(props: { onSignedIn: () => void }) {
               placeholder="ADMIN_TOKEN"
             />
           </Field>
-          {error ? <Banner tone={adminDisabled ? "warn" : "danger"}>{error}</Banner> : null}
+          {error ? (
+            <Banner tone={adminDisabled ? "warn" : "danger"}>{error}</Banner>
+          ) : null}
           <div>
-            <Button type="submit" variant="primary" disabled={busy || token.trim() === ""}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || token.trim() === ""}
+            >
               {busy ? "Signing in…" : "Sign in"}
             </Button>
           </div>

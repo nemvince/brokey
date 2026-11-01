@@ -25,7 +25,11 @@ export function usePathname(): string {
   return pathname;
 }
 
-export function Link(props: { href: string; children: React.ReactNode; className?: string }) {
+export function Link(props: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <a
       href={props.href}

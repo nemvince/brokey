@@ -14,8 +14,9 @@
   --series-2: #7a8c82;
   --series-3: #c2a25a;
   --sans: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
-    monospace;
+  --mono:
+    ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo,
+    Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -524,7 +525,9 @@ textarea.input {
   color: var(--ink);
   padding: 7px 12px;
   cursor: pointer;
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
   white-space: nowrap;
 }
 

@@ -4,7 +4,11 @@ export type TokenUsage = {
   totalTokens: number;
 };
 
-export const EMPTY_USAGE: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+export const EMPTY_USAGE: TokenUsage = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+};
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -21,7 +25,10 @@ function partText(part: unknown): string {
   if (Array.isArray(part)) return part.map(partText).join("");
   if (part && typeof part === "object") {
     const obj = part as Record<string, unknown>;
-    if (typeof obj.text === "string" && (obj.type === undefined || obj.type === "text")) {
+    if (
+      typeof obj.text === "string" &&
+      (obj.type === undefined || obj.type === "text")
+    ) {
       return obj.text;
     }
     if (obj.content !== undefined) return partText(obj.content);
@@ -60,8 +67,10 @@ export function usageFromChatJson(obj: unknown): TokenUsage | null {
   const record = usage as Record<string, unknown>;
   const promptTokens = numberOrNull(record.prompt_tokens) ?? 0;
   const completionTokens = numberOrNull(record.completion_tokens) ?? 0;
-  const totalTokens = numberOrNull(record.total_tokens) ?? promptTokens + completionTokens;
-  if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) return null;
+  const totalTokens =
+    numberOrNull(record.total_tokens) ?? promptTokens + completionTokens;
+  if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0)
+    return null;
   return { promptTokens, completionTokens, totalTokens };
 }
 
@@ -77,8 +86,10 @@ export function usageFromResponsesJson(obj: unknown): TokenUsage | null {
     const record = candidate as Record<string, unknown>;
     const promptTokens = numberOrNull(record.input_tokens) ?? 0;
     const completionTokens = numberOrNull(record.output_tokens) ?? 0;
-    const totalTokens = numberOrNull(record.total_tokens) ?? promptTokens + completionTokens;
-    if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) continue;
+    const totalTokens =
+      numberOrNull(record.total_tokens) ?? promptTokens + completionTokens;
+    if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0)
+      continue;
     return { promptTokens, completionTokens, totalTokens };
   }
   return null;
@@ -152,7 +163,10 @@ export function extractResponsesOutputText(obj: unknown): string {
 export function extractResponsesDeltaText(obj: unknown): string {
   if (!obj || typeof obj !== "object") return "";
   const record = obj as Record<string, unknown>;
-  if (record.type === "response.output_text.delta" && typeof record.delta === "string") {
+  if (
+    record.type === "response.output_text.delta" &&
+    typeof record.delta === "string"
+  ) {
     return record.delta;
   }
   return "";

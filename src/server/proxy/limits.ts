@@ -12,7 +12,11 @@ export function windowStart(kind: LimitWindow, now: number): number | null {
   return Date.UTC(year, month, date.getUTCDate());
 }
 
-export type WindowUsage = { requests: number; tokens: number; windowStart: number | null };
+export type WindowUsage = {
+  requests: number;
+  tokens: number;
+  windowStart: number | null;
+};
 
 export function usageForWindow(
   db: AppDb,
@@ -30,7 +34,10 @@ export function usageForWindow(
     .where(
       start === null
         ? eq(usageLogs.clientKeyId, clientKeyId)
-        : and(eq(usageLogs.clientKeyId, clientKeyId), gte(usageLogs.createdAt, start)),
+        : and(
+            eq(usageLogs.clientKeyId, clientKeyId),
+            gte(usageLogs.createdAt, start),
+          ),
     )
     .all();
   const row = rows[0];

@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { estimateChatPromptTokens, estimateTokens } from "../src/server/proxy/usage.ts";
+import {
+  estimateChatPromptTokens,
+  estimateTokens,
+} from "../src/server/proxy/usage.ts";
 import { parseRetryAfter } from "../src/server/proxy/keys.ts";
 import { windowStart } from "../src/server/proxy/limits.ts";
 import { SseSplitter, parseEventJson } from "../src/server/proxy/streaming.ts";
@@ -22,7 +25,9 @@ type ClientKeyRow = {
   limitWindow: string;
   usage: { requests: number; tokens: number; windowStart: number | null };
 };
-type ErrorBody = { error: { message: string; code: string | null; type: string } };
+type ErrorBody = {
+  error: { message: string; code: string | null; type: string };
+};
 
 const encoder = new TextEncoder();
 
@@ -37,7 +42,9 @@ describe("pure helpers", () => {
     expect(parseRetryAfter("1h", now)).toBe(3600);
     expect(parseRetryAfter("500ms", now)).toBe(1);
     expect(parseRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT", now)).toBe(1);
-    expect(parseRetryAfter(String(new Date(now + 90_000).toUTCString()), now)).toBe(90);
+    expect(
+      parseRetryAfter(String(new Date(now + 90_000).toUTCString()), now),
+    ).toBe(90);
     expect(parseRetryAfter(null, now)).toBe(60);
     expect(parseRetryAfter("nonsense", now)).toBe(60);
   });
@@ -65,7 +72,7 @@ describe("pure helpers", () => {
   test("SSE splitter keeps frames and separators across chunk boundaries", () => {
     const splitter = new SseSplitter();
     const frames = [
-      ...splitter.push(encoder.encode("data: {\"a\":")),
+      ...splitter.push(encoder.encode('data: {"a":')),
       ...splitter.push(encoder.encode("1}\n\ndata: [DONE]\n\n")),
     ];
     expect(frames.length).toBe(2);
@@ -75,7 +82,7 @@ describe("pure helpers", () => {
     expect(frames[1]?.raw).toBe("data: [DONE]");
     expect(parseEventJson(frames[1]!.raw)).toBeNull();
 
-    const trailing = splitter.push(encoder.encode("data: {\"tail\":true}"));
+    const trailing = splitter.push(encoder.encode('data: {"tail":true}'));
     expect(trailing.length).toBe(0);
     const flushed = splitter.flush();
     expect(flushed.length).toBe(1);
@@ -90,7 +97,10 @@ describe("client key limits", () => {
   beforeAll(async () => {
     app = startTestApp();
     mock = startMockUpstream();
-    const provider = await seedProvider(app, { name: "limits", baseUrl: mock.baseUrl });
+    const provider = await seedProvider(app, {
+      name: "limits",
+      baseUrl: mock.baseUrl,
+    });
     await seedModel(app, provider.providerId, {
       upstreamId: "upstream-mock-chat",
       publicId: "mock-chat",
@@ -120,11 +130,14 @@ describe("client key limits", () => {
     const body = await readJson<ErrorBody>(second);
     expect(body.error.code).toBe("usage_limit_exceeded");
     expect(body.error.type).toBe("insufficient_quota");
-    expect(body.error.message).toBe("API key usage limit exceeded (requests) for this day window.");
+    expect(body.error.message).toBe(
+      "API key usage limit exceeded (requests) for this day window.",
+    );
   });
 
   test("upstream error responses still consume the request cap", async () => {
-    mock.chatHandler = () => Response.json({ error: { message: "bad request" } }, { status: 400 });
+    mock.chatHandler = () =>
+      Response.json({ error: { message: "bad request" } }, { status: 400 });
     const key = await seedClientKey(app, {
       name: "error-cap",
       limitWindow: "total",
@@ -151,14 +164,18 @@ describe("client key limits", () => {
       body: { model: "mock-chat", messages: [] },
     });
     expect(first.status).toBe(200);
-    const firstRemaining = Number(first.headers.get("x-brokey-tokens-remaining"));
+    const firstRemaining = Number(
+      first.headers.get("x-brokey-tokens-remaining"),
+    );
     expect(firstRemaining).toBe(20);
 
     const second = await proxyRequest(app, "/v1/chat/completions", key.token, {
       body: { model: "mock-chat", messages: [] },
     });
     expect(second.status).toBe(200);
-    const secondRemaining = Number(second.headers.get("x-brokey-tokens-remaining"));
+    const secondRemaining = Number(
+      second.headers.get("x-brokey-tokens-remaining"),
+    );
     expect(secondRemaining).toBe(10);
 
     const third = await proxyRequest(app, "/v1/chat/completions", key.token, {
@@ -176,30 +193,64 @@ describe("client key limits", () => {
       limitWindow: "total",
       limitTokens: 100,
     });
-    insertUsageLog(app, { clientKeyId: key.id, totalTokens: 99, createdAt: Date.now() });
-    const response = await proxyRequest(app, "/v1/chat/completions", key.token, {
-      body: {
-        model: "mock-chat",
-        messages: [{ role: "user", content: "x".repeat(200) }],
-      },
+    insertUsageLog(app, {
+      clientKeyId: key.id,
+      totalTokens: 99,
+      createdAt: Date.now(),
     });
+    const response = await proxyRequest(
+      app,
+      "/v1/chat/completions",
+      key.token,
+      {
+        body: {
+          model: "mock-chat",
+          messages: [{ role: "user", content: "x".repeat(200) }],
+        },
+      },
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("x-brokey-tokens-remaining")).toBe("0");
   });
 
   test("day windows ignore logs from before UTC midnight, total windows do not", async () => {
-    const dayKey = await seedClientKey(app, { name: "day-window", limitWindow: "day" });
-    const totalKey = await seedClientKey(app, { name: "total-window", limitWindow: "total" });
+    const dayKey = await seedClientKey(app, {
+      name: "day-window",
+      limitWindow: "day",
+    });
+    const totalKey = await seedClientKey(app, {
+      name: "total-window",
+      limitWindow: "total",
+    });
 
     const now = Date.now();
     const dayStart = windowStart("day", now) as number;
     const yesterday = dayStart - 60_000;
-    insertUsageLog(app, { clientKeyId: dayKey.id, totalTokens: 100, createdAt: yesterday });
-    insertUsageLog(app, { clientKeyId: dayKey.id, totalTokens: 5, createdAt: now });
-    insertUsageLog(app, { clientKeyId: totalKey.id, totalTokens: 100, createdAt: yesterday });
-    insertUsageLog(app, { clientKeyId: totalKey.id, totalTokens: 5, createdAt: now });
+    insertUsageLog(app, {
+      clientKeyId: dayKey.id,
+      totalTokens: 100,
+      createdAt: yesterday,
+    });
+    insertUsageLog(app, {
+      clientKeyId: dayKey.id,
+      totalTokens: 5,
+      createdAt: now,
+    });
+    insertUsageLog(app, {
+      clientKeyId: totalKey.id,
+      totalTokens: 100,
+      createdAt: yesterday,
+    });
+    insertUsageLog(app, {
+      clientKeyId: totalKey.id,
+      totalTokens: 5,
+      createdAt: now,
+    });
 
-    const list = await adminJson<{ clientKeys: ClientKeyRow[] }>(app, "/api/admin/client-keys");
+    const list = await adminJson<{ clientKeys: ClientKeyRow[] }>(
+      app,
+      "/api/admin/client-keys",
+    );
     const day = list.clientKeys.find((row) => row.id === dayKey.id);
     const total = list.clientKeys.find((row) => row.id === totalKey.id);
     expect(day?.usage.requests).toBe(1);
@@ -226,7 +277,10 @@ describe("client key limits", () => {
     await proxyRequest(app, "/v1/chat/completions", key.token, {
       body: { model: "mock-chat", messages: [] },
     });
-    const after = await adminJson<{ total: number }>(app, `/api/admin/usage?clientKeyId=${key.id}`);
+    const after = await adminJson<{ total: number }>(
+      app,
+      `/api/admin/usage?clientKeyId=${key.id}`,
+    );
     expect(after.total).toBe(before.total);
     expect(before.total).toBe(1);
   });

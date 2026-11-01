@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
-    "db:generate": "drizzle-kit generate",
+    "build": "bun run scripts/embed-migrations.ts && bun build src/index.ts --compile --outfile dist/brokey",
+    "db:generate": "drizzle-kit generate && bun run scripts/embed-migrations.ts",
+    "fmt": "bun fmt",
     "test": "bun test",
     "typecheck": "bun check"
   },

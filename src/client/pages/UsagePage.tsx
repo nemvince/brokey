@@ -60,10 +60,14 @@ export function UsagePage() {
         setData(body);
         setError(null);
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   }, [clientKeyId, providerId, status, range, page]);
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const totalPages = data
+    ? Math.max(1, Math.ceil(data.total / data.pageSize))
+    : 1;
 
   return (
     <>
@@ -160,7 +164,11 @@ export function UsagePage() {
         ]}
         sticky
         stack
-        empty={data && data.rows.length === 0 ? "No requests match these filters." : null}
+        empty={
+          data && data.rows.length === 0
+            ? "No requests match these filters."
+            : null
+        }
       >
         {(data?.rows ?? []).map((row) => (
           <tr key={row.id}>
@@ -184,8 +192,12 @@ export function UsagePage() {
               ) : (
                 <Badge tone="ok">{row.status}</Badge>
               )}
-              {row.streamed ? <span className="muted small"> · stream</span> : null}
-              {row.errorCode ? <span className="muted small"> {row.errorCode}</span> : null}
+              {row.streamed ? (
+                <span className="muted small"> · stream</span>
+              ) : null}
+              {row.errorCode ? (
+                <span className="muted small"> {row.errorCode}</span>
+              ) : null}
             </td>
             <td data-label="Prompt" className="num">
               {formatNumber(row.promptTokens)}
@@ -195,7 +207,9 @@ export function UsagePage() {
             </td>
             <td data-label="Total" className="num">
               {formatNumber(row.totalTokens)}
-              {row.estimated ? <span className="muted small"> · est</span> : null}
+              {row.estimated ? (
+                <span className="muted small"> · est</span>
+              ) : null}
             </td>
             <td data-label="Latency" className="num">
               {formatNumber(row.latencyMs)} ms
@@ -208,7 +222,11 @@ export function UsagePage() {
         <span>
           Page {page + 1} of {totalPages}
         </span>
-        <Button size="small" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
+        <Button
+          size="small"
+          disabled={page === 0}
+          onClick={() => setPage((value) => Math.max(0, value - 1))}
+        >
           Previous
         </Button>
         <Button

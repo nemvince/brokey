@@ -27,9 +27,15 @@ describe("public statistics", () => {
 
   beforeAll(async () => {
     app = startTestApp();
-    const alpha = await seedProvider(app, { name: "alpha", baseUrl: "http://127.0.0.1:1/v1" });
+    const alpha = await seedProvider(app, {
+      name: "alpha",
+      baseUrl: "http://127.0.0.1:1/v1",
+    });
     alphaProviderId = alpha.providerId;
-    const beta = await seedProvider(app, { name: "beta", baseUrl: "http://127.0.0.1:1/v1" });
+    const beta = await seedProvider(app, {
+      name: "beta",
+      baseUrl: "http://127.0.0.1:1/v1",
+    });
     betaProviderId = beta.providerId;
     const alphaModel = await seedModel(app, alphaProviderId, {
       upstreamId: "a-1",
@@ -127,7 +133,9 @@ describe("public statistics", () => {
     for (const bucket of hourly.series) {
       expect(bucket.bucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/);
     }
-    expect(hourly.series.reduce((sum, row) => sum + row.requests, 0)).toBe(hourly.totals.requests);
+    expect(hourly.series.reduce((sum, row) => sum + row.requests, 0)).toBe(
+      hourly.totals.requests,
+    );
     expect(hourly.totals.requests).toBe(4);
 
     const daily = await stats("7d");
@@ -136,12 +144,16 @@ describe("public statistics", () => {
       expect(bucket.bucket).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
     expect(daily.series.reduce((sum, row) => sum + row.requests, 0)).toBe(4);
-    expect(daily.series.reduce((sum, row) => sum + row.totalTokens, 0)).toBe(75);
+    expect(daily.series.reduce((sum, row) => sum + row.totalTokens, 0)).toBe(
+      75,
+    );
   });
 
   test("breakdowns are ordered by total tokens", async () => {
     const body = await stats("all");
-    expect(body.byModel.map((row) => [row.label, row.provider, row.totalTokens])).toEqual([
+    expect(
+      body.byModel.map((row) => [row.label, row.provider, row.totalTokens]),
+    ).toEqual([
       ["beta-1", "beta", 50],
       ["alpha-1", "alpha", 25],
     ]);
@@ -150,7 +162,12 @@ describe("public statistics", () => {
       ["alpha", 25],
     ]);
     expect(body.byClientKey).toEqual([
-      { label: "ck", prefix: expect.stringMatching(/^sk-brokey-/), requests: 4, totalTokens: 75 },
+      {
+        label: "ck",
+        prefix: expect.stringMatching(/^sk-brokey-/),
+        requests: 4,
+        totalTokens: 75,
+      },
     ]);
   });
 
@@ -172,8 +189,12 @@ describe("public statistics", () => {
   });
 
   test("logs keep snapshot labels after the provider and client key are deleted", async () => {
-    await adminJson(app, `/api/admin/providers/${betaProviderId}`, { method: "DELETE" });
-    await adminJson(app, `/api/admin/client-keys/${clientKeyId}`, { method: "DELETE" });
+    await adminJson(app, `/api/admin/providers/${betaProviderId}`, {
+      method: "DELETE",
+    });
+    await adminJson(app, `/api/admin/client-keys/${clientKeyId}`, {
+      method: "DELETE",
+    });
 
     const body = await stats("all");
     expect(body.totals.requests).toBe(4);
@@ -182,10 +203,10 @@ describe("public statistics", () => {
     expect(body.byClientKey).toEqual([
       { label: "ck", prefix: "", requests: 4, totalTokens: 75 },
     ]);
-    expect(await adminJson<{ providers: unknown[] }>(app, "/api/admin/providers")).toEqual({
-      providers: [
-        expect.objectContaining({ name: "alpha" }),
-      ],
+    expect(
+      await adminJson<{ providers: unknown[] }>(app, "/api/admin/providers"),
+    ).toEqual({
+      providers: [expect.objectContaining({ name: "alpha" })],
     });
   });
 });

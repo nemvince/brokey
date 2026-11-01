@@ -21,11 +21,14 @@ import { ModelDialog } from "../components/ModelDialog.tsx";
 import { SyncPreviewDialog } from "../components/SyncPreviewDialog.tsx";
 
 function StatusBadge(props: { providerKey: ProviderKeyDTO; now: number }) {
-  if (props.providerKey.status === "disabled") return <Badge tone="muted">disabled</Badge>;
+  if (props.providerKey.status === "disabled")
+    return <Badge tone="muted">disabled</Badge>;
   if (props.providerKey.status === "cooling") {
     const seconds = Math.max(
       0,
-      Math.ceil(((props.providerKey.cooldownUntil ?? props.now) - props.now) / 1000),
+      Math.ceil(
+        ((props.providerKey.cooldownUntil ?? props.now) - props.now) / 1000,
+      ),
     );
     return (
       <Badge tone="warn">
@@ -36,11 +39,16 @@ function StatusBadge(props: { providerKey: ProviderKeyDTO; now: number }) {
   return <Badge tone="ok">active</Badge>;
 }
 
-function SettingsForm(props: { detail: ProviderDetailDTO; onSaved: () => void }) {
+function SettingsForm(props: {
+  detail: ProviderDetailDTO;
+  onSaved: () => void;
+}) {
   const [name, setName] = useState(props.detail.name);
   const [baseUrl, setBaseUrl] = useState(props.detail.baseUrl);
   const [extraHeaders, setExtraHeaders] = useState(
-    props.detail.extraHeaders ? JSON.stringify(props.detail.extraHeaders, null, 2) : "",
+    props.detail.extraHeaders
+      ? JSON.stringify(props.detail.extraHeaders, null, 2)
+      : "",
   );
   const [enabled, setEnabled] = useState(props.detail.enabled);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +58,9 @@ function SettingsForm(props: { detail: ProviderDetailDTO; onSaved: () => void })
     setName(props.detail.name);
     setBaseUrl(props.detail.baseUrl);
     setExtraHeaders(
-      props.detail.extraHeaders ? JSON.stringify(props.detail.extraHeaders, null, 2) : "",
+      props.detail.extraHeaders
+        ? JSON.stringify(props.detail.extraHeaders, null, 2)
+        : "",
     );
     setEnabled(props.detail.enabled);
   }, [props.detail]);
@@ -64,7 +74,9 @@ function SettingsForm(props: { detail: ProviderDetailDTO; onSaved: () => void })
       try {
         const parsed: unknown = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("Extra headers must be a JSON object of string values.");
+          throw new Error(
+            "Extra headers must be a JSON object of string values.",
+          );
         }
         headers = parsed as Record<string, string>;
       } catch (cause) {
@@ -93,13 +105,22 @@ function SettingsForm(props: { detail: ProviderDetailDTO; onSaved: () => void })
       <div className="panel-head">
         <h2>Settings</h2>
         <span className="spacer" />
-        <span className="small muted">Last synced {formatAgo(props.detail.lastSyncedAt)}</span>
+        <span className="small muted">
+          Last synced {formatAgo(props.detail.lastSyncedAt)}
+        </span>
       </div>
       <div className="form-grid">
         <Field label="Name">
-          <input className="input mono" value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            className="input mono"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </Field>
-        <Field label="Base URL" hint="Include the API version prefix, e.g. https://api.openai.com/v1">
+        <Field
+          label="Base URL"
+          hint="Include the API version prefix, e.g. https://api.openai.com/v1"
+        >
           <input
             className="input mono"
             value={baseUrl}
@@ -147,9 +168,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
   const [creatingModel, setCreatingModel] = useState(false);
 
   const fetchPreview = (): Promise<SyncPreview> =>
-    adminFetch<SyncPreview>(`/api/admin/providers/${props.providerId}/models/fetch`, {
-      method: "POST",
-    });
+    adminFetch<SyncPreview>(
+      `/api/admin/providers/${props.providerId}/models/fetch`,
+      {
+        method: "POST",
+      },
+    );
 
   const load = () => {
     adminFetch<ProviderDetailDTO>(`/api/admin/providers/${props.providerId}`)
@@ -157,7 +181,9 @@ export function ProviderDetailPage(props: { providerId: number }) {
         setDetail(body);
         setError(null);
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   };
 
   useEffect(load, [props.providerId]);
@@ -200,7 +226,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
       );
   };
 
-  const patchKey = (key: ProviderKeyDTO, body: Record<string, unknown>, message: string) => {
+  const patchKey = (
+    key: ProviderKeyDTO,
+    body: Record<string, unknown>,
+    message: string,
+  ) => {
     adminFetch(`/api/admin/provider-keys/${key.id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -209,7 +239,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
         showToast(message);
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   const resetKey = (key: ProviderKeyDTO) => {
@@ -218,7 +253,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
         showToast("Cooldown cleared.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   const deleteKey = (key: ProviderKeyDTO) => {
@@ -227,7 +267,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
         showToast("API key deleted.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   const fetchModels = () => {
@@ -239,7 +284,10 @@ export function ProviderDetailPage(props: { providerId: number }) {
       })
       .catch((cause: unknown) => {
         setFetching(false);
-        showToast(cause instanceof Error ? cause.message : String(cause), "error");
+        showToast(
+          cause instanceof Error ? cause.message : String(cause),
+          "error",
+        );
       });
   };
 
@@ -249,14 +297,21 @@ export function ProviderDetailPage(props: { providerId: number }) {
         showToast("Model deleted.");
         load();
       })
-      .catch((cause: unknown) => showToast(String(cause instanceof Error ? cause.message : cause), "error"));
+      .catch((cause: unknown) =>
+        showToast(
+          String(cause instanceof Error ? cause.message : cause),
+          "error",
+        ),
+      );
   };
 
   return (
     <>
       <div className="page-head">
         <h1 className="mono">{detail.name}</h1>
-        <Badge tone={detail.enabled ? "ok" : "muted"}>{detail.enabled ? "enabled" : "disabled"}</Badge>
+        <Badge tone={detail.enabled ? "ok" : "muted"}>
+          {detail.enabled ? "enabled" : "disabled"}
+        </Badge>
         <span className="spacer" />
         <Button
           onClick={() => {
@@ -296,7 +351,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
             { key: "actions", label: "" },
           ]}
           stack
-          empty={detail.keys.length === 0 ? "No API keys yet. Requests fail until you add one." : null}
+          empty={
+            detail.keys.length === 0
+              ? "No API keys yet. Requests fail until you add one."
+              : null
+          }
         >
           {detail.keys.map((key) => (
             <tr key={key.id}>
@@ -310,7 +369,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
               <td data-label="Last used" className="small muted">
                 {formatAgo(key.lastUsedAt)}
               </td>
-              <td data-label="Last error" className="small" style={{ maxWidth: 260, whiteSpace: "normal" }}>
+              <td
+                data-label="Last error"
+                className="small"
+                style={{ maxWidth: 260, whiteSpace: "normal" }}
+              >
                 {key.lastError ? (
                   <span className="muted" title={key.lastError}>
                     {key.lastError.slice(0, 90)}
@@ -337,7 +400,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
                   <Button size="small" onClick={() => resetKey(key)}>
                     Reset
                   </Button>
-                  <Button size="small" variant="danger" onClick={() => deleteKey(key)}>
+                  <Button
+                    size="small"
+                    variant="danger"
+                    onClick={() => deleteKey(key)}
+                  >
                     Delete
                   </Button>
                 </span>
@@ -392,7 +459,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
                     })
                       .then(load)
                       .catch((cause: unknown) =>
-                        showToast(String(cause instanceof Error ? cause.message : cause), "error"),
+                        showToast(
+                          String(
+                            cause instanceof Error ? cause.message : cause,
+                          ),
+                          "error",
+                        ),
                       )
                   }
                 />
@@ -413,7 +485,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
                   <Button size="small" onClick={() => setEditingModel(model)}>
                     Edit
                   </Button>
-                  <Button size="small" variant="danger" onClick={() => deleteModel(model)}>
+                  <Button
+                    size="small"
+                    variant="danger"
+                    onClick={() => deleteModel(model)}
+                  >
                     Delete
                   </Button>
                 </span>

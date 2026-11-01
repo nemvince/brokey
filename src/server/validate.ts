@@ -12,19 +12,25 @@ export function asString(
   field: string,
   opts: { min?: number; max?: number; trim?: boolean } = {},
 ): string {
-  if (typeof value !== "string") throw new HttpError(400, `"${field}" must be a string.`);
+  if (typeof value !== "string")
+    throw new HttpError(400, `"${field}" must be a string.`);
   const text = opts.trim === false ? value : value.trim();
   const min = opts.min ?? 0;
   const max = opts.max ?? 10_000;
   if (text.length < min) {
-    throw new HttpError(400, `"${field}" must be at least ${min} character${min === 1 ? "" : "s"}.`);
+    throw new HttpError(
+      400,
+      `"${field}" must be at least ${min} character${min === 1 ? "" : "s"}.`,
+    );
   }
-  if (text.length > max) throw new HttpError(400, `"${field}" must be at most ${max} characters.`);
+  if (text.length > max)
+    throw new HttpError(400, `"${field}" must be at most ${max} characters.`);
   return text;
 }
 
 export function asBool(value: unknown, field: string): boolean {
-  if (typeof value !== "boolean") throw new HttpError(400, `"${field}" must be a boolean.`);
+  if (typeof value !== "boolean")
+    throw new HttpError(400, `"${field}" must be a boolean.`);
   return value;
 }
 
@@ -34,7 +40,10 @@ export function asEnum<T extends string>(
   allowed: readonly T[],
 ): T {
   if (typeof value !== "string" || !allowed.includes(value as T)) {
-    throw new HttpError(400, `"${field}" must be one of ${allowed.join(", ")}.`);
+    throw new HttpError(
+      400,
+      `"${field}" must be one of ${allowed.join(", ")}.`,
+    );
   }
   return value as T;
 }

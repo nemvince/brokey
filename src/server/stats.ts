@@ -18,7 +18,11 @@ function asNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function handleStats(req: Request, db: AppDb, now = Date.now()): Response {
+export function handleStats(
+  req: Request,
+  db: AppDb,
+  now = Date.now(),
+): Response {
   const url = new URL(req.url);
   const requested = url.searchParams.get("range") ?? "30d";
   const range: StatsRange = RANGES.includes(requested as StatsRange)
@@ -196,9 +200,9 @@ export function handleStats(req: Request, db: AppDb, now = Date.now()): Response
   return Response.json(payload, { headers: { "cache-control": "no-store" } });
 }
 
-function topByTokens<T extends { label: string; totalTokens: number; requests: number }>(
-  rows: T[],
-): T[] {
+function topByTokens<
+  T extends { label: string; totalTokens: number; requests: number },
+>(rows: T[]): T[] {
   return rows
     .sort((a, b) =>
       b.totalTokens - a.totalTokens !== 0

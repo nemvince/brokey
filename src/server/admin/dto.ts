@@ -24,7 +24,9 @@ export type ProviderCounts = {
   disabled: number;
 };
 
-export function parseExtraHeaders(raw: string | null): Record<string, string> | null {
+export function parseExtraHeaders(
+  raw: string | null,
+): Record<string, string> | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -37,7 +39,10 @@ export function parseExtraHeaders(raw: string | null): Record<string, string> | 
   return null;
 }
 
-export function toProviderDTO(row: ProviderRow, counts: ProviderCounts): ProviderDTO {
+export function toProviderDTO(
+  row: ProviderRow,
+  counts: ProviderCounts,
+): ProviderDTO {
   return {
     id: row.id,
     name: row.name,
@@ -57,7 +62,10 @@ export function toProviderDTO(row: ProviderRow, counts: ProviderCounts): Provide
   };
 }
 
-export function toProviderKeyDTO(row: ProviderKeyRow, now = Date.now()): ProviderKeyDTO {
+export function toProviderKeyDTO(
+  row: ProviderKeyRow,
+  now = Date.now(),
+): ProviderKeyDTO {
   return {
     id: row.id,
     providerId: row.providerId,
@@ -94,7 +102,10 @@ export function toModelDTO(row: ModelRow, providerName: string): ModelDTO {
   };
 }
 
-export function toClientKeyDTO(row: ClientKeyRow, usage: WindowUsage): ClientKeyDTO {
+export function toClientKeyDTO(
+  row: ClientKeyRow,
+  usage: WindowUsage,
+): ClientKeyDTO {
   return {
     id: row.id,
     name: row.name,

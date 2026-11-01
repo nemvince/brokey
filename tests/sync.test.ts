@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { models, usageLogs } from "../src/server/schema.ts";
-import type { ModelDTO, ProviderDetailDTO, SyncPreview } from "../src/shared/types.ts";
+import type {
+  ModelDTO,
+  ProviderDetailDTO,
+  SyncPreview,
+} from "../src/shared/types.ts";
 import {
   adminJson,
   adminRequest,
@@ -15,7 +19,11 @@ import {
 } from "./helpers.ts";
 
 function modelRow(app: TestApp, publicId: string) {
-  return app.db.select().from(models).where(eq(models.publicId, publicId)).get();
+  return app.db
+    .select()
+    .from(models)
+    .where(eq(models.publicId, publicId))
+    .get();
 }
 
 describe("model sync", () => {
@@ -27,11 +35,19 @@ describe("model sync", () => {
     app = startTestApp();
     mock = startMockUpstream({
       models: [
-        { id: "m-one", name: "Model One", context_length: 8000, owned_by: "vendor" },
+        {
+          id: "m-one",
+          name: "Model One",
+          context_length: 8000,
+          owned_by: "vendor",
+        },
         { id: "m-two", name: "Model Two" },
       ],
     });
-    const provider = await seedProvider(app, { name: "sync", baseUrl: mock.baseUrl });
+    const provider = await seedProvider(app, {
+      name: "sync",
+      baseUrl: mock.baseUrl,
+    });
     providerId = provider.providerId;
   });
 
@@ -41,13 +57,23 @@ describe("model sync", () => {
   });
 
   test("preview lists additions and apply only stores the selected rows", async () => {
-    const preview = await adminJson<SyncPreview>(app, `/api/admin/providers/${providerId}/models/fetch`, {
-      method: "POST",
-    });
+    const preview = await adminJson<SyncPreview>(
+      app,
+      `/api/admin/providers/${providerId}/models/fetch`,
+      {
+        method: "POST",
+      },
+    );
     expect(preview.providerId).toBe(providerId);
-    expect(preview.added.map((row) => row.upstreamId)).toEqual(["m-one", "m-two"]);
+    expect(preview.added.map((row) => row.upstreamId)).toEqual([
+      "m-one",
+      "m-two",
+    ]);
     expect(preview.added[0]?.suggestedPublicId).toBe("m-one");
-    expect(preview.added[0]?.upstream).toEqual({ displayName: "Model One", contextWindow: 8000 });
+    expect(preview.added[0]?.upstream).toEqual({
+      displayName: "Model One",
+      contextWindow: 8000,
+    });
     expect(preview.matched).toEqual([]);
     expect(preview.missing).toEqual([]);
 
@@ -77,7 +103,12 @@ describe("model sync", () => {
     expect(modelRow(app, "one")?.syncedDisplayName).toBe("Model One");
 
     mock.models = [
-      { id: "m-one", name: "Renamed", context_length: 8000, owned_by: "vendor" },
+      {
+        id: "m-one",
+        name: "Renamed",
+        context_length: 8000,
+        owned_by: "vendor",
+      },
       { id: "m-two", name: "Model Two" },
     ];
     const preview = await adminJson<SyncPreview>(
@@ -98,17 +129,26 @@ describe("model sync", () => {
 
     const modelId = modelRow(app, "one")?.id as number;
     await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, {
-      body: { resolutions: [{ modelId, field: "displayName", choice: "local" }] },
+      body: {
+        resolutions: [{ modelId, field: "displayName", choice: "local" }],
+      },
     });
     expect(modelRow(app, "one")?.displayName).toBe("My Name");
     expect(modelRow(app, "one")?.syncedDisplayName).toBe("Renamed");
 
     mock.models = [
-      { id: "m-one", name: "Third Name", context_length: 8000, owned_by: "vendor" },
+      {
+        id: "m-one",
+        name: "Third Name",
+        context_length: 8000,
+        owned_by: "vendor",
+      },
       { id: "m-two", name: "Model Two" },
     ];
     await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, {
-      body: { resolutions: [{ modelId, field: "displayName", choice: "upstream" }] },
+      body: {
+        resolutions: [{ modelId, field: "displayName", choice: "upstream" }],
+      },
     });
     expect(modelRow(app, "one")?.displayName).toBe("Third Name");
     expect(modelRow(app, "one")?.syncedDisplayName).toBe("Third Name");
@@ -116,10 +156,17 @@ describe("model sync", () => {
 
   test("upstream metadata changes are adopted when the local value is untouched", async () => {
     mock.models = [
-      { id: "m-one", name: "Third Name", context_length: 16000, owned_by: "vendor" },
+      {
+        id: "m-one",
+        name: "Third Name",
+        context_length: 16000,
+        owned_by: "vendor",
+      },
       { id: "m-two", name: "Model Two" },
     ];
-    await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, { body: {} });
+    await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, {
+      body: {},
+    });
     expect(modelRow(app, "one")?.contextWindow).toBe(16000);
     expect(modelRow(app, "one")?.syncedContextWindow).toBe(16000);
   });
@@ -149,7 +196,10 @@ describe("model sync", () => {
       `/api/admin/providers/${providerId}/models/fetch`,
       { method: "POST" },
     );
-    expect(preview.missing.map((row) => row.publicId).sort()).toEqual(["three", "two"]);
+    expect(preview.missing.map((row) => row.publicId).sort()).toEqual([
+      "three",
+      "two",
+    ]);
 
     await adminJson(app, `/api/admin/providers/${providerId}/models/apply`, {
       body: {
@@ -174,7 +224,10 @@ describe("model sync", () => {
 
   test("aliases across providers are de-duplicated and duplicate public IDs are rejected", async () => {
     mock.models = [{ id: "gpt-x", name: "GPT X", context_length: 32000 }];
-    const other = await seedProvider(app, { name: "other", baseUrl: mock.baseUrl });
+    const other = await seedProvider(app, {
+      name: "other",
+      baseUrl: mock.baseUrl,
+    });
 
     const first = await adminJson<SyncPreview>(
       app,
@@ -192,7 +245,9 @@ describe("model sync", () => {
       `/api/admin/providers/${other.providerId}/models/fetch`,
       { method: "POST" },
     );
-    const secondAddition = second.added.find((row) => row.upstreamId === "gpt-x");
+    const secondAddition = second.added.find(
+      (row) => row.upstreamId === "gpt-x",
+    );
     expect(secondAddition?.suggestedPublicId).toBe("gpt-x-2");
     expect(secondAddition?.aliasConflict).toBe(true);
 
@@ -248,7 +303,9 @@ describe("model sync without keys", () => {
     );
     expect(response.status).toBe(400);
     const body = await readJson<{ error: { message: string } }>(response);
-    expect(body.error.message).toBe('Provider "keyless" has no enabled API keys.');
+    expect(body.error.message).toBe(
+      'Provider "keyless" has no enabled API keys.',
+    );
     expect(mock.calls.length).toBe(0);
   });
 });

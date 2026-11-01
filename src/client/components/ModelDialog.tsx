@@ -14,14 +14,21 @@ export function ModelDialog(props: {
   const editing = props.mode === "edit";
   const model = props.model;
   const [providerId, setProviderId] = useState(
-    String(model?.providerId ?? props.defaultProviderId ?? props.providers[0]?.id ?? ""),
+    String(
+      model?.providerId ??
+        props.defaultProviderId ??
+        props.providers[0]?.id ??
+        "",
+    ),
   );
   const [upstreamId, setUpstreamId] = useState(model?.upstreamId ?? "");
   const [publicId, setPublicId] = useState(model?.publicId ?? "");
   const [displayName, setDisplayName] = useState(model?.displayName ?? "");
   const [enabled, setEnabled] = useState(model?.enabled ?? true);
   const [contextWindow, setContextWindow] = useState(
-    model?.contextWindow === null || model?.contextWindow === undefined ? "" : String(model.contextWindow),
+    model?.contextWindow === null || model?.contextWindow === undefined
+      ? ""
+      : String(model.contextWindow),
   );
   const [maxOutputTokens, setMaxOutputTokens] = useState(
     model?.maxOutputTokens === null || model?.maxOutputTokens === undefined
@@ -83,7 +90,10 @@ export function ModelDialog(props: {
       }
     >
       <div className="form-grid">
-        <Field label="Provider" hint={editing ? "A model cannot move between providers." : undefined}>
+        <Field
+          label="Provider"
+          hint={editing ? "A model cannot move between providers." : undefined}
+        >
           <select
             className="select"
             value={providerId}
@@ -156,8 +166,8 @@ export function ModelDialog(props: {
       {editing ? (
         <p className="small muted">
           Sync status:{" "}
-          {model?.upstreamAvailable ? "available upstream" : "missing upstream"} · last seen{" "}
-          {model?.upstreamOwnedBy ?? "unknown vendor"}
+          {model?.upstreamAvailable ? "available upstream" : "missing upstream"}{" "}
+          · last seen {model?.upstreamOwnedBy ?? "unknown vendor"}
         </p>
       ) : null}
       {error ? <Banner>{error}</Banner> : null}

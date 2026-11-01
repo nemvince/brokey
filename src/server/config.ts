@@ -5,7 +5,9 @@ export type AppConfig = {
   development: boolean;
 };
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+): AppConfig {
   const port = Number(env.PORT ?? 3000);
   return {
     port: Number.isFinite(port) && port > 0 ? port : 3000,

@@ -6,10 +6,17 @@ export type ErrorType =
   | "rate_limit_error"
   | "api_error";
 
-export function json(data: unknown, status = 200, headers?: HeadersInit): Response {
+export function json(
+  data: unknown,
+  status = 200,
+  headers?: HeadersInit,
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...(headers as object) },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...(headers as object),
+    },
   });
 }
 
@@ -26,7 +33,11 @@ export function openaiError(
 }
 
 /** Admin API error envelope: `{ error: { message, code } }`. */
-export function adminError(status: number, message: string, code?: string): Response {
+export function adminError(
+  status: number,
+  message: string,
+  code?: string,
+): Response {
   return json({ error: code ? { message, code } : { message } }, status);
 }
 
@@ -48,7 +59,11 @@ export function toResponse(error: unknown): Response {
   }
   const conflict = uniqueConstraintField(error);
   if (conflict) {
-    return adminError(409, `A record with that ${conflict} already exists.`, "conflict");
+    return adminError(
+      409,
+      `A record with that ${conflict} already exists.`,
+      "conflict",
+    );
   }
   const message = error instanceof Error ? error.message : String(error);
   return adminError(500, message);
@@ -57,14 +72,19 @@ export function toResponse(error: unknown): Response {
 /** `UNIQUE constraint failed: models.public_id` → `public id`. */
 export function uniqueConstraintField(error: unknown): string | null {
   const message = error instanceof Error ? error.message : "";
-  const match = /UNIQUE constraint failed: ([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)/.exec(message);
+  const match =
+    /UNIQUE constraint failed: ([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)/.exec(message);
   if (!match) return null;
   const column = match[2] as string;
   return column.replace(/_/g, " ");
 }
 
 /** Narrow a `.get()` result, turning a missing row into an HTTP error. */
-export function expectRow<T>(row: T | undefined, message: string, status = 500): T {
+export function expectRow<T>(
+  row: T | undefined,
+  message: string,
+  status = 500,
+): T {
   if (row === undefined) throw new HttpError(status, message);
   return row;
 }

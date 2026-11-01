@@ -26,7 +26,8 @@ export function createApp(options: CreateAppOptions = {}) {
     routes: {
       "/api/health": () => Response.json({ ok: true }),
       "/api/stats": (req) => handleStats(req, db),
-      "/api/admin/*": (req) => handleAdmin(req, new URL(req.url), db, adminToken),
+      "/api/admin/*": (req) =>
+        handleAdmin(req, new URL(req.url), db, adminToken),
       "/v1/*": (req) => handleProxy(req, { db }),
       "/admin": index,
       "/admin/*": index,
@@ -36,7 +37,8 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const stop = () => {
     server.stop(true);
-    if (dbPath !== ":memory:" && !dbPath.startsWith("file::memory:")) raw.close();
+    if (dbPath !== ":memory:" && !dbPath.startsWith("file::memory:"))
+      raw.close();
   };
 
   return { server, db, raw, stop };

@@ -48,7 +48,14 @@ export function StatsPage() {
   return (
     <div className="stats-page">
       <header className="site-head">
-        <a className="wordmark" href="/" onClick={(event) => { event.preventDefault(); navigate("/"); }}>
+        <a
+          className="wordmark"
+          href="/"
+          onClick={(event) => {
+            event.preventDefault();
+            navigate("/");
+          }}
+        >
           brokey<span>.</span>
         </a>
         <span className="small muted">
@@ -101,11 +108,17 @@ export function StatsPage() {
           <span className="spacer" />
           <div className="chart-legend">
             <span>
-              <i className="legend-swatch" style={{ background: "var(--series-1)" }} />
+              <i
+                className="legend-swatch"
+                style={{ background: "var(--series-1)" }}
+              />
               tokens
             </span>
             <span>
-              <i className="legend-swatch" style={{ background: "var(--series-3)" }} />
+              <i
+                className="legend-swatch"
+                style={{ background: "var(--series-3)" }}
+              />
               requests
             </span>
           </div>
@@ -156,7 +169,9 @@ export function StatsPage() {
               { key: "tokens", label: "Tokens", numeric: true },
             ]}
             stack
-            empty={(data?.byProvider.length ?? 0) === 0 ? "No traffic yet." : null}
+            empty={
+              (data?.byProvider.length ?? 0) === 0 ? "No traffic yet." : null
+            }
           >
             {(data?.byProvider ?? []).map((row) => (
               <tr key={row.label}>
@@ -184,7 +199,9 @@ export function StatsPage() {
               { key: "tokens", label: "Tokens", numeric: true },
             ]}
             stack
-            empty={(data?.byClientKey.length ?? 0) === 0 ? "No traffic yet." : null}
+            empty={
+              (data?.byClientKey.length ?? 0) === 0 ? "No traffic yet." : null
+            }
           >
             {(data?.byClientKey ?? []).map((row) => (
               <tr key={`${row.label}:${row.prefix}`}>
@@ -213,11 +230,15 @@ export function StatsPage() {
           <div style={{ display: "flex", gap: 24 }}>
             <div>
               <span className="hero-label">Requests</span>
-              <span className="hero-value">{formatNumber(data?.today.requests ?? 0)}</span>
+              <span className="hero-value">
+                {formatNumber(data?.today.requests ?? 0)}
+              </span>
             </div>
             <div>
               <span className="hero-label">Tokens</span>
-              <span className="hero-value">{formatNumber(data?.today.totalTokens ?? 0)}</span>
+              <span className="hero-value">
+                {formatNumber(data?.today.totalTokens ?? 0)}
+              </span>
             </div>
           </div>
         </section>
@@ -260,11 +281,15 @@ export function StatsPage() {
               <td data-label="Client key">{row.clientKey}</td>
               <td data-label="Status" className="num">
                 {row.status}
-                {row.streamed ? <span className="muted small"> · stream</span> : null}
+                {row.streamed ? (
+                  <span className="muted small"> · stream</span>
+                ) : null}
               </td>
               <td data-label="Tokens" className="num">
                 {formatNumber(row.totalTokens)}
-                {row.estimated ? <span className="muted small"> · est</span> : null}
+                {row.estimated ? (
+                  <span className="muted small"> · est</span>
+                ) : null}
               </td>
               <td data-label="Latency" className="num">
                 {formatNumber(row.latencyMs)} ms
