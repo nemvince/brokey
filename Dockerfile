@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage: install deps, then emit one self-contained executable ----
-FROM oven/bun:1 AS build
+# The Alpine-based Bun image compiles for musl natively, so no cross-compile
+# download is needed and multi-arch builds stay native.
+FROM oven/bun:1-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -16,16 +18,22 @@ COPY src ./src
 RUN bun run build
 
 # ---- runtime stage: the binary only — no Bun, no node_modules ----
-FROM debian:stable-slim AS runtime
+FROM alpine:3.22 AS runtime
+
+# Bun's musl build links libstdc++; nothing else is needed.
+RUN apk add --no-cache libstdc++ \
+  && addgroup -S -g 10001 brokey \
+  && adduser -S -u 10001 -G brokey brokey \
+  && mkdir -p /data \
+  && chown brokey:brokey /data
 
 COPY --from=build /app/dist/brokey /usr/local/bin/brokey
-RUN mkdir -p /data && chown 10001:10001 /data
 
 ENV NODE_ENV=production \
     PORT=3000 \
     DATABASE_PATH=/data/brokey.db
 
-USER 10001:10001
+USER brokey
 EXPOSE 3000
 VOLUME ["/data"]
 

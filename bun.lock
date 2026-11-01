@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bun-react-template",
+      "name": "brokey",
       "dependencies": {
         "drizzle-orm": "1.0.0-rc.5",
         "react": "^19",

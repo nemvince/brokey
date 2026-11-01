@@ -96,6 +96,12 @@ frontend and every migration, so it needs no `node_modules`, no `drizzle/`
 folder and no Bun install on the target host. Only `DATABASE_PATH` has to point
 at a writable directory.
 
+The binary targets the platform that built it, so run it on the same OS and libc:
+`bun run build` on a glibc distro yields a glibc binary, and the Docker image
+builds it inside Alpine for musl. Pass `--target` (for example
+`bun build src/index.ts --compile --target=bun-linux-arm64-musl`) to copy the
+build for another platform; musl binaries need `libstdc++` on the host.
+
 Rebuild whenever migrations change; `bun run db:generate` regenerates the
 embedded module for you, and `bun run build` always does it before compiling.
 
@@ -109,9 +115,14 @@ docker run -d -p 3000:3000 \
   brokey
 ```
 
-The image is a two-stage build: `oven/bun:1` compiles the binary, then it is
-copied into a slim Debian runtime as an unprivileged user (uid 10001). The
-database file lives on the `/data` volume.
+The image is a two-stage build: `oven/bun:1-alpine` compiles the binary natively
+for musl, then it is copied into `alpine:3.22` (+ `libstdc++`) running as an
+unprivileged user (uid 10001). About 110 MB on disk, nearly all of it the Bun
+runtime; the database file lives on the `/data` volume.
+
+Because the build stage is Alpine-native, `docker buildx build --platform
+linux/arm64` produces a genuine arm64 image — the build itself runs under
+emulation unless the builder is arm64.
 
 ## Development
 
