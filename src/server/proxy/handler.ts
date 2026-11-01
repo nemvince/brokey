@@ -254,6 +254,37 @@ function estimatePromptTokens(
   return 0;
 }
 
+export type CatalogModel = {
+  id: string;
+  object: "model";
+  created: number;
+  owned_by: string;
+  name: string;
+  context_length?: number;
+  max_output_tokens?: number;
+};
+
+/**
+ * The effective catalog entry for a model: local overrides when set, otherwise
+ * the values last synced from the provider.
+ */
+export function catalogModel(
+  model: ModelRow,
+  providerName: string,
+): CatalogModel {
+  const entry: CatalogModel = {
+    id: model.publicId,
+    object: "model",
+    created: Math.floor((model.upstreamCreatedAt ?? model.createdAt) / 1000),
+    owned_by: providerName,
+    name: model.displayName,
+  };
+  if (model.contextWindow !== null) entry.context_length = model.contextWindow;
+  if (model.maxOutputTokens !== null)
+    entry.max_output_tokens = model.maxOutputTokens;
+  return entry;
+}
+
 function listModelCatalog(db: AppDb): Response {
   const rows = db
     .select({ model: models, providerName: providers.name })
@@ -267,12 +298,9 @@ function listModelCatalog(db: AppDb): Response {
       ),
     )
     .all();
-  const data = rows.map(({ model, providerName }) => ({
-    id: model.publicId,
-    object: "model" as const,
-    created: Math.floor((model.upstreamCreatedAt ?? model.createdAt) / 1000),
-    owned_by: providerName,
-  }));
+  const data = rows.map(({ model, providerName }) =>
+    catalogModel(model, providerName),
+  );
   return Response.json({ object: "list", data });
 }
 
@@ -292,14 +320,7 @@ function getModelCatalog(db: AppDb, publicId: string): Response {
     .all();
   const row = rows[0];
   if (!row) return modelNotFound(publicId);
-  return Response.json({
-    id: row.model.publicId,
-    object: "model",
-    created: Math.floor(
-      (row.model.upstreamCreatedAt ?? row.model.createdAt) / 1000,
-    ),
-    owned_by: row.providerName,
-  });
+  return Response.json(catalogModel(row.model, row.providerName));
 }
 
 function writeUsageLog(

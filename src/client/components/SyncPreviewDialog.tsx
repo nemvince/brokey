@@ -88,6 +88,10 @@ export function SyncPreviewDialog(props: {
       });
   };
 
+  const setAllAdded = (selected: boolean) => {
+    setAdded(added.map((row) => ({ ...row, selected })));
+  };
+
   const setAllUpstream = () => {
     setResolutions(
       Object.fromEntries(
@@ -121,7 +125,20 @@ export function SyncPreviewDialog(props: {
       {error ? <Banner>{error}</Banner> : null}
 
       <section>
-        <h3>New models ({added.length})</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h3>New models ({added.length})</h3>
+          <span className="spacer" />
+          {added.length > 0 ? (
+            <>
+              <Button size="small" onClick={() => setAllAdded(true)}>
+                Select all
+              </Button>
+              <Button size="small" onClick={() => setAllAdded(false)}>
+                Select none
+              </Button>
+            </>
+          ) : null}
+        </div>
         {added.length === 0 ? (
           <p className="small muted">No new models upstream.</p>
         ) : (

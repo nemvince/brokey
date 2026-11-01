@@ -60,7 +60,10 @@ print(client.chat.completions.create(
 
 `GET /v1/models` and `GET /v1/models/<publicId>` are answered from the local
 enabled catalog rather than passed through, so clients only ever see models you
-chose to expose. Every other `/v1/*` path is proxied.
+chose to expose. Each entry carries the metadata clients use for context
+budgeting: `name`, `context_length` (the context window) and `max_output_tokens`
+where known. Those values are seeded from the provider on sync and can be
+overridden per model in the GUI. Every other `/v1/*` path is proxied.
 
 Routing a request:
 

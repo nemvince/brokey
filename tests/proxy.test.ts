@@ -27,6 +27,15 @@ type StatsBody = {
   totals: { requests: number; totalTokens: number };
   recent: { requestId: string; status: number; streamed: boolean }[];
 };
+type CatalogModelBody = {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+  name: string;
+  context_length?: number;
+  max_output_tokens?: number;
+};
 
 describe("proxy data path", () => {
   let app: TestApp;
@@ -109,17 +118,54 @@ describe("proxy data path", () => {
 
     const response = await proxyRequest(app, "/v1/models", token);
     expect(response.status).toBe(200);
-    const body = await readJson<{
-      object: string;
-      data: { id: string; owned_by: string }[];
-    }>(response);
+    const body = await readJson<{ object: string; data: CatalogModelBody[] }>(
+      response,
+    );
     expect(body.object).toBe("list");
-    expect(body.data.map((row) => row.id)).toContain("mock-chat");
-    expect(body.data[0]?.owned_by).toBe("primary");
+    const entry = body.data.find((row) => row.id === "mock-chat");
+    expect(entry).toEqual({
+      id: "mock-chat",
+      object: "model",
+      created: expect.any(Number),
+      owned_by: "primary",
+      name: "Mock Chat",
+      context_length: 128000,
+    });
 
-    const single = await proxyRequest(app, "/v1/models/mock-chat", token);
-    expect(single.status).toBe(200);
-    expect((await readJson<{ id: string }>(single)).id).toBe("mock-chat");
+    const single = await readJson<CatalogModelBody>(
+      await proxyRequest(app, "/v1/models/mock-chat", token),
+    );
+    expect(single.id).toBe("mock-chat");
+    expect(single.name).toBe("Mock Chat");
+    expect(single.owned_by).toBe("primary");
+    expect(single.context_length).toBe(128000);
+  });
+
+  test("/v1/models serves admin overrides of the synced metadata", async () => {
+    const models = await adminJson<{
+      models: { id: number; publicId: string }[];
+    }>(app, "/api/admin/models");
+    const modelId = models.models.find(
+      (row) => row.publicId === "mock-chat",
+    )?.id;
+    expect(modelId).toBeDefined();
+
+    const patch = (body: Record<string, unknown>) =>
+      adminJson(app, `/api/admin/models/${modelId}`, { method: "PATCH", body });
+
+    await patch({ contextWindow: 64000, maxOutputTokens: 4096 });
+    const overridden = await readJson<CatalogModelBody>(
+      await proxyRequest(app, "/v1/models/mock-chat", token),
+    );
+    expect(overridden.context_length).toBe(64000);
+    expect(overridden.max_output_tokens).toBe(4096);
+
+    await patch({ contextWindow: 128000, maxOutputTokens: null });
+    const restored = await readJson<CatalogModelBody>(
+      await proxyRequest(app, "/v1/models/mock-chat", token),
+    );
+    expect(restored.context_length).toBe(128000);
+    expect(restored).not.toHaveProperty("max_output_tokens");
   });
 
   test("streaming forwards content, hides the injected usage chunk and logs tokens", async () => {
