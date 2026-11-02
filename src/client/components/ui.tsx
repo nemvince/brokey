@@ -229,6 +229,19 @@ export function formatNumber(value: number): string {
   return value.toLocaleString("en-US");
 }
 
+// Dashboards render figures in fixed-width slots; full digit grouping needs
+// hundreds of pixels, so anything 6 digits or longer is shown compactly ("1.2M").
+const compact = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export function formatCompact(value: number): string {
+  return Math.abs(value) < 100_000
+    ? formatNumber(value)
+    : compact.format(value);
+}
+
 export function formatTime(value: number | null): string {
   if (value === null) return "—";
   const date = new Date(value);

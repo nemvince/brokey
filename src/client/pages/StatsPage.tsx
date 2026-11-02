@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { StatsRange, StatsResponse } from "../../shared/types.ts";
 import { publicFetch } from "../api.ts";
 import { BarChart } from "../components/BarChart";
-import { Banner, formatNumber } from "../components/ui";
+import { Banner, formatCompact } from "../components/ui";
 import { navigate } from "../router";
 
 const RANGES: StatsRange[] = ["24h", "7d", "30d", "all"];
@@ -150,32 +150,32 @@ export function StatsPage() {
       <section className="readout" aria-label="Totals">
         <Readout
           label="Tokens processed"
-          value={formatNumber(tokenTotal)}
-          note={`${formatNumber(totals?.requests ?? 0)} requests`}
+          value={formatCompact(tokenTotal)}
+          note={`${formatCompact(totals?.requests ?? 0)} requests`}
         />
         <div className="readout-cells">
           <Readout
             label="Prompt"
-            value={formatNumber(totals?.promptTokens ?? 0)}
+            value={formatCompact(totals?.promptTokens ?? 0)}
             note={`${(promptShare * 100).toFixed(0)}% of tokens`}
           />
           <Readout
             label="Completion"
-            value={formatNumber(totals?.completionTokens ?? 0)}
+            value={formatCompact(totals?.completionTokens ?? 0)}
           />
           <Readout
             label="Avg completion"
-            value={formatNumber(totals?.averageCompletionTokens ?? 0)}
+            value={formatCompact(totals?.averageCompletionTokens ?? 0)}
             note="tokens per request"
           />
           <Readout
             label="Models served"
-            value={formatNumber(data?.byModel.length ?? 0)}
+            value={formatCompact(data?.byModel.length ?? 0)}
           />
           <Readout
             label="Errors"
-            value={formatNumber(totals?.errors ?? 0)}
-            note={`${formatNumber(totals?.estimatedRequests ?? 0)} estimated`}
+            value={formatCompact(totals?.errors ?? 0)}
+            note={`${formatCompact(totals?.estimatedRequests ?? 0)} estimated`}
           />
         </div>
       </section>
@@ -219,7 +219,7 @@ export function StatsPage() {
                   label={row.label}
                   value={row.totalTokens}
                   total={modelTotal}
-                  display={formatNumber(row.totalTokens)}
+                  display={formatCompact(row.totalTokens)}
                 />
               ))}
             </ul>
@@ -237,12 +237,12 @@ export function StatsPage() {
                 label={row.label}
                 value={row.totalTokens}
                 total={transferTotal}
-                display={formatNumber(row.totalTokens)}
+                display={formatCompact(row.totalTokens)}
               />
             ))}
           </ul>
           <p className="small muted meter-foot">
-            {formatNumber(streamedRequests)} of {formatNumber(requestTotal)}{" "}
+            {formatCompact(streamedRequests)} of {formatCompact(requestTotal)}{" "}
             requests streamed.
           </p>
         </section>
@@ -254,11 +254,11 @@ export function StatsPage() {
           <div className="stack-figures">
             <Readout
               label="Requests"
-              value={formatNumber(data?.today.requests ?? 0)}
+              value={formatCompact(data?.today.requests ?? 0)}
             />
             <Readout
               label="Tokens"
-              value={formatNumber(data?.today.totalTokens ?? 0)}
+              value={formatCompact(data?.today.totalTokens ?? 0)}
             />
           </div>
           <p className="small muted meter-foot">
@@ -273,11 +273,11 @@ export function StatsPage() {
           <div className="stack-figures">
             <Readout
               label="Active client keys"
-              value={formatNumber(data?.activeUsers.clientKeys ?? 0)}
+              value={formatCompact(data?.activeUsers.clientKeys ?? 0)}
             />
             <Readout
               label="Upstreams used"
-              value={formatNumber(data?.activeUsers.providers ?? 0)}
+              value={formatCompact(data?.activeUsers.providers ?? 0)}
             />
           </div>
           <p className="small muted meter-foot">
