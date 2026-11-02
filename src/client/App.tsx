@@ -9,6 +9,7 @@ import { ProviderDetailPage } from "./pages/ProviderDetailPage.tsx";
 import { ModelsPage } from "./pages/ModelsPage.tsx";
 import { ClientKeysPage } from "./pages/ClientKeysPage.tsx";
 import { UsagePage } from "./pages/UsagePage.tsx";
+import { APP_VERSION } from "./version.ts";
 
 const NAV = [
   { href: "/admin", label: "Providers" },
@@ -76,6 +77,7 @@ function AdminShell(props: {
           >
             Sign out
           </button>
+          <span className="small muted mono">v{APP_VERSION}</span>
         </div>
       </aside>
       <main className="admin-main">
