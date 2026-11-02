@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { gte, sql } from "drizzle-orm";
 import type { AppDb } from "./db.ts";
-import { clientKeys, usageLogs } from "./schema.ts";
+import { usageLogs } from "./schema.ts";
 import type { StatsRange, StatsResponse } from "../shared/types.ts";
 
 const RANGE_MS: Record<Exclude<StatsRange, "all">, number> = {
@@ -23,7 +23,11 @@ export function invalidateStatsCache(): void {
   cache = null;
 }
 const BREAKDOWN_LIMIT = 10;
-const RECENT_LIMIT = 20;
+/**
+ * The endpoint is unauthenticated, so nothing that identifies a client key or
+ * a provider may leave this handler: names, key prefixes and per-request rows
+ * are all leaks. Only counts, sums and anonymous labels are emitted.
+ */
 
 function asNumber(value: unknown): number {
   const parsed = Number(value ?? 0);
@@ -106,60 +110,35 @@ export function handleStats(
   const byModelRows = db
     .select({
       label: usageLogs.modelPublicId,
-      provider: usageLogs.providerName,
       requests: sql<number>`count(*)`,
       totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}), 0)`,
     })
     .from(usageLogs)
     .where(rangeWhere)
-    .groupBy(usageLogs.modelPublicId, usageLogs.providerName)
+    .groupBy(usageLogs.modelPublicId)
     .all();
 
-  const byProviderRows = db
+  // Delivered incrementally or as one block — a transfer property, not an identity.
+  const byTransferRows = db
     .select({
-      label: usageLogs.providerName,
-      requests: sql<number>`count(*)`,
-      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}), 0)`,
-    })
-    .from(usageLogs)
-    .where(rangeWhere)
-    .groupBy(usageLogs.providerName)
-    .all();
-
-  const byClientKeyRows = db
-    .select({
-      label: usageLogs.clientKeyLabel,
-      prefix: clientKeys.keyPrefix,
-      requests: sql<number>`count(*)`,
-      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}), 0)`,
-    })
-    .from(usageLogs)
-    .leftJoin(clientKeys, eq(usageLogs.clientKeyId, clientKeys.id))
-    .where(rangeWhere)
-    .groupBy(usageLogs.clientKeyLabel, clientKeys.keyPrefix)
-    .all();
-
-  const recentRows = db
-    .select({
-      requestId: usageLogs.requestId,
-      createdAt: usageLogs.createdAt,
-      endpoint: usageLogs.endpoint,
-      method: usageLogs.method,
-      model: usageLogs.modelPublicId,
-      provider: usageLogs.providerName,
-      clientKey: usageLogs.clientKeyLabel,
-      status: usageLogs.status,
       streamed: usageLogs.streamed,
-      estimated: usageLogs.estimated,
-      promptTokens: usageLogs.promptTokens,
-      completionTokens: usageLogs.completionTokens,
-      totalTokens: usageLogs.totalTokens,
-      latencyMs: usageLogs.latencyMs,
+      requests: sql<number>`count(*)`,
+      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}), 0)`,
     })
     .from(usageLogs)
-    .orderBy(desc(usageLogs.createdAt), desc(usageLogs.id))
-    .limit(RECENT_LIMIT)
+    .where(rangeWhere)
+    .groupBy(usageLogs.streamed)
     .all();
+
+  // Only counts: how many keys and upstreams the traffic was spread over.
+  const distinctRows = db
+    .select({
+      clientKeys: sql<number>`count(distinct ${usageLogs.clientKeyId})`,
+      providers: sql<number>`count(distinct ${usageLogs.providerId})`,
+    })
+    .from(usageLogs)
+    .where(rangeWhere)
+    .get();
 
   const payload: StatsResponse = {
     generatedAt: now,
@@ -171,6 +150,10 @@ export function handleStats(
       totalTokens: asNumber(totalsRow?.totalTokens),
       estimatedRequests: asNumber(totalsRow?.estimatedRequests),
       errors: asNumber(totalsRow?.errors),
+      averageCompletionTokens: Math.round(
+        asNumber(totalsRow?.completionTokens) /
+          Math.max(1, asNumber(totalsRow?.requests)),
+      ),
     },
     today: {
       requests: asNumber(todayRow?.requests),
@@ -185,43 +168,35 @@ export function handleStats(
       .sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0)),
     byModel: topByTokens(
       byModelRows.map((row) => ({
-        label: row.label === "" ? "(no model)" : row.label,
-        provider: row.provider,
+        label: row.label === "" ? "(unrouted)" : row.label,
         requests: asNumber(row.requests),
         totalTokens: asNumber(row.totalTokens),
       })),
     ),
-    byProvider: topByTokens(
-      byProviderRows.map((row) => ({
-        label: row.label,
-        requests: asNumber(row.requests),
-        totalTokens: asNumber(row.totalTokens),
-      })),
-    ),
-    byClientKey: topByTokens(
-      byClientKeyRows.map((row) => ({
-        label: row.label,
-        prefix: row.prefix ?? "",
-        requests: asNumber(row.requests),
-        totalTokens: asNumber(row.totalTokens),
-      })),
-    ),
-    recent: recentRows.map((row) => ({
-      requestId: row.requestId,
-      createdAt: row.createdAt,
-      endpoint: row.endpoint,
-      method: row.method,
-      model: row.model,
-      provider: row.provider,
-      clientKey: row.clientKey,
-      status: row.status,
-      streamed: row.streamed,
-      estimated: row.estimated,
-      promptTokens: row.promptTokens,
-      completionTokens: row.completionTokens,
-      totalTokens: row.totalTokens,
-      latencyMs: row.latencyMs,
-    })),
+    byTransfer: [
+      {
+        label: "Streamed",
+        requests: asNumber(
+          byTransferRows.find((row) => row.streamed === true)?.requests,
+        ),
+        totalTokens: asNumber(
+          byTransferRows.find((row) => row.streamed === true)?.totalTokens,
+        ),
+      },
+      {
+        label: "Buffered",
+        requests: asNumber(
+          byTransferRows.find((row) => row.streamed === false)?.requests,
+        ),
+        totalTokens: asNumber(
+          byTransferRows.find((row) => row.streamed === false)?.totalTokens,
+        ),
+      },
+    ],
+    activeUsers: {
+      clientKeys: asNumber(distinctRows?.clientKeys),
+      providers: asNumber(distinctRows?.providers),
+    },
   };
 
   cache = { key: cacheKey, at: now, payload };

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { providers } from "../src/server/schema.ts";
-import type { ProviderDetailDTO } from "../src/shared/types.ts";
+import type { ProviderDetailDTO, StatsResponse } from "../src/shared/types.ts";
 import {
   adminJson,
   adminRequest,
@@ -475,20 +475,22 @@ describe("storage hygiene", () => {
         totalTokens: 5,
       });
 
-      const first = await readJson<{ byClientKey: { prefix: string }[] }>(
+      // The public payload never names keys or providers; it only counts them.
+      const first = await readJson<StatsResponse>(
         await fetch(`${app.baseUrl}/api/stats?range=all`),
       );
-      expect(first.byClientKey[0]?.prefix).toMatch(/^sk-brokey-/);
+      expect(first.activeUsers).toEqual({ clientKeys: 1, providers: 1 });
 
       await adminJson(app, `/api/admin/client-keys/${key.id}`, {
         method: "DELETE",
       });
 
-      const second = await readJson<{
-        byClientKey: { prefix: string; label: string }[];
-      }>(await fetch(`${app.baseUrl}/api/stats?range=all`));
-      expect(second.byClientKey[0]?.label).toBe("cache-client");
-      expect(second.byClientKey[0]?.prefix).toBe("");
+      // The log rows keep their snapshot labels, so the counts survive the delete.
+      const second = await readJson<StatsResponse>(
+        await fetch(`${app.baseUrl}/api/stats?range=all`),
+      );
+      expect(second.activeUsers).toEqual({ clientKeys: 0, providers: 1 });
+      expect(second.totals.totalTokens).toBe(5);
     } finally {
       app.stop();
       mock.stop();

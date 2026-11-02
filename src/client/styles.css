@@ -919,3 +919,167 @@ textarea.input {
     padding: 20px 14px 48px;
   }
 }
+
+/* ---------- public meter (public statistics page) ---------- */
+
+/*
+ * The page shows aggregate numbers only. One display face set very large for
+ * throughput, quiet hairline structure around it, and a mint signal colour so
+ * the strip reads as an instrument rather than a report.
+ */
+
+.meter {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+}
+
+/* Hero: the throughput figure, set large. */
+.readout {
+  margin: 24px 0;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  align-items: end;
+}
+
+.readout .readout-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.readout > .readout-cell > .readout-figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(44px, 7vw, 76px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  display: block;
+  margin: 6px 0 2px;
+}
+
+.readout-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.readout-cells {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.readout-cells .readout-cell {
+  padding-right: 14px;
+  border-right: 1px solid var(--border);
+}
+
+.readout-cells .readout-cell:last-child {
+  border-right: 0;
+}
+
+.stack-figures {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.stack-figures .readout-figure,
+.readout-cell .readout-figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  display: block;
+  margin: 4px 0 0;
+}
+
+.meter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.meter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.meter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(60px, 140px) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.meter-row-label {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter-track {
+  display: block;
+  height: 8px;
+  background: var(--border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.meter-track > i {
+  display: block;
+  height: 100%;
+  background: var(--series-1);
+  border-radius: 1px;
+  transition: width 420ms ease-out;
+}
+
+.meter-row-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.meter-foot {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 880px) {
+  .readout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .readout-cells {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 0;
+  }
+
+  .readout-cells .readout-cell:nth-child(1n + 3) {
+    padding-top: 14px;
+  }
+
+  .readout-cells .readout-cell {
+    border-top: 0;
+  }
+
+  .meter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter-track > i {
+    transition: none;
+  }
+}

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createServer, type Server } from "node:net";
 import { eq } from "drizzle-orm";
 import { providerKeys, usageLogs } from "../src/server/schema.ts";
 import {
@@ -27,7 +28,8 @@ type ChatBody = {
 };
 type StatsBody = {
   totals: { requests: number; totalTokens: number };
-  recent: { requestId: string; status: number; streamed: boolean }[];
+  byTransfer: { label: string; requests: number; totalTokens: number }[];
+  activeUsers: { clientKeys: number; providers: number };
 };
 type CatalogModelBody = {
   id: string;
@@ -94,7 +96,11 @@ describe("proxy data path", () => {
     );
     expect(stats.totals.requests).toBe(1);
     expect(stats.totals.totalTokens).toBe(10);
-    expect(stats.recent[0]?.status).toBe(200);
+    // The proxy logs the completion, and the public payload shows it as a
+    // buffered (non-streaming) request without naming the key or provider.
+    const buffered = stats.byTransfer.find((row) => row.label === "Buffered");
+    expect(buffered?.requests).toBe(1);
+    expect(stats.activeUsers).toEqual({ clientKeys: 1, providers: 1 });
   });
 
   test("public model ID is rewritten to the upstream ID", async () => {
@@ -568,16 +574,44 @@ describe("streaming fallback when the upstream rejects stream_options", () => {
 
 describe("upstream stream failure after headers", () => {
   let app: TestApp;
-  let mock: MockUpstream;
   let token: string;
   let keyId: number;
+  let server: Server;
 
   beforeAll(async () => {
     app = startTestApp();
-    mock = startMockUpstream();
+    // A raw TCP upstream: a Response body cannot die once fetch() has its
+    // headers, so the reset has to come from the socket. Headers plus one
+    // tool-call frame, then the connection is destroyed — exactly the shape
+    // inferx produced, and the only shape Bun reports as ECONNRESET.
+    server = createServer((socket) => {
+      let buffered = "";
+      socket.on("data", (chunk: Buffer) => {
+        buffered += chunk.toString();
+        if (!buffered.includes("\r\n\r\n")) return;
+        const frame = `data: ${JSON.stringify({
+          choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1" }] } }],
+        })}\n\n`;
+        socket.write(
+          "HTTP/1.1 200 OK\r\n" +
+            "content-type: text/event-stream\r\n" +
+            "transfer-encoding: chunked\r\n\r\n" +
+            `${frame.length.toString(16)}\r\n${frame}\r\n`,
+        );
+        // No terminating zero-length chunk: the connection dies outright.
+        socket.resetAndDestroy();
+      });
+      socket.on("error", () => {});
+    });
+    const listening = Promise.withResolvers<void>();
+    server.listen(0, "127.0.0.1", () => listening.resolve());
+    await listening.promise;
+    const address = server.address();
+    const port =
+      typeof address === "object" && address !== null ? address.port : 0;
     const provider = await seedProvider(app, {
       name: "flaky",
-      baseUrl: mock.baseUrl,
+      baseUrl: `http://127.0.0.1:${port}/v1`,
       secrets: ["sk-flaky"],
     });
     keyId = provider.keyIds[0] as number;
@@ -586,37 +620,11 @@ describe("upstream stream failure after headers", () => {
       publicId: "flaky-chat",
     });
     token = (await seedClientKey(app, { name: "flaky-key" })).token;
-
-    mock.chatHandler = () => {
-      const encoder = new TextEncoder();
-      return new Response(
-        new ReadableStream({
-          async start(controller) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  choices: [
-                    { delta: { tool_calls: [{ index: 0, id: "call_1" }] } },
-                  ],
-                })}\n\n`,
-              ),
-            );
-            await Bun.sleep(10);
-            controller.error(
-              new Error(
-                "ECONNRESET: The socket connection was closed unexpectedly.",
-              ),
-            );
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      );
-    };
   });
 
   afterAll(() => {
     app.stop();
-    mock.stop();
+    server.close();
   });
 
   test("reports the failure in-band instead of resetting the client", async () => {
@@ -629,10 +637,22 @@ describe("upstream stream failure after headers", () => {
     });
     expect(response.status).toBe(200);
 
-    // Reading the body must not throw a transport-level ECONNRESET.
-    const text = await response.text();
+    // The body must read to completion: the client gets the proxy's in-band
+    // error event, never a transport-level ECONNRESET from a reset socket.
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      throw new Error(
+        `client body read threw: ${(error as Error).name} ${(error as Error).message}`,
+      );
+    }
     expect(text).toContain('"code":"stream_error"');
-    expect(text).toContain("ECONNRESET");
+    // The upstream message is relayed so the failure is diagnosable.
+    expect(text).toContain("socket connection was closed unexpectedly");
+    // Whether the first frame reached the client before the reset, the body
+    // still ends with the proxy's error event rather than a broken chunk.
+    expect(text.startsWith("data: ")).toBe(true);
 
     const requestId = response.headers.get("x-brokey-request-id");
     const row = app.db
@@ -649,7 +669,9 @@ describe("upstream stream failure after headers", () => {
       .from(providerKeys)
       .where(eq(providerKeys.id, keyId))
       .get();
-    expect(key?.lastError).toContain("ECONNRESET");
+    expect(key?.lastError).toContain(
+      "socket connection was closed unexpectedly",
+    );
     expect(key?.cooldownUntil ?? 0).toBeGreaterThan(Date.now());
   });
 });

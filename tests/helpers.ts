@@ -49,7 +49,7 @@ export type MockUpstream = {
 };
 
 export function startMockUpstream(
-  options: { models?: unknown[] } = {},
+  options: { models?: unknown[]; quiet?: boolean } = {},
 ): MockUpstream {
   const state: MockUpstream = {
     baseUrl: "",

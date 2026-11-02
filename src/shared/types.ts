@@ -155,38 +155,16 @@ export type StatsResponse = {
     totalTokens: number;
     estimatedRequests: number;
     errors: number;
+    averageCompletionTokens: number;
   };
   today: { requests: number; totalTokens: number };
   series: { bucket: string; requests: number; totalTokens: number }[];
-  byModel: {
-    label: string;
-    provider: string;
-    requests: number;
-    totalTokens: number;
-  }[];
-  byProvider: { label: string; requests: number; totalTokens: number }[];
-  byClientKey: {
-    label: string;
-    prefix: string;
-    requests: number;
-    totalTokens: number;
-  }[];
-  recent: {
-    requestId: string;
-    createdAt: number;
-    endpoint: string;
-    method: string;
-    model: string;
-    provider: string;
-    clientKey: string;
-    status: number;
-    streamed: boolean;
-    estimated: boolean;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    latencyMs: number;
-  }[];
+  /** Model IDs routeable through this proxy. No provider names. */
+  byModel: { label: string; requests: number; totalTokens: number }[];
+  /** Requests grouped by a name-free property (e.g. `stream` vs buffered). */
+  byTransfer: { label: string; requests: number; totalTokens: number }[];
+  /** How many distinct client keys and providers carried traffic. */
+  activeUsers: { clientKeys: number; providers: number };
 };
 
 export type AdminErrorBody = { error: { message: string; code?: string } };

@@ -1,18 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { StatsRange, StatsResponse } from "../../shared/types.ts";
 import { publicFetch } from "../api.ts";
-import { BarChart } from "../components/BarChart.tsx";
-import { Banner, formatNumber, formatTime, Table } from "../components/ui.tsx";
-import { navigate } from "../router.tsx";
+import { BarChart } from "../components/BarChart";
+import { Banner, formatNumber } from "../components/ui";
+import { navigate } from "../router";
 
 const RANGES: StatsRange[] = ["24h", "7d", "30d", "all"];
 
-function HeroItem(props: { label: string; value: number }) {
+function Readout(props: { label: string; value: string; note?: string }) {
   return (
-    <div className="hero-item">
-      <span className="hero-label">{props.label}</span>
-      <span className="hero-value">{formatNumber(props.value)}</span>
+    <div className="readout-cell">
+      <span className="readout-label">{props.label}</span>
+      <span className="readout-figure">{props.value}</span>
+      {props.note ? <span className="readout-note">{props.note}</span> : null}
     </div>
+  );
+}
+
+function Meter(props: {
+  label: string;
+  value: number;
+  total: number;
+  display: string;
+}) {
+  // Share of the section's own total, so bars stay comparable within a list.
+  const share = props.total > 0 ? props.value / props.total : 0;
+  const percent = (share * 100).toFixed(share >= 0.1 || share === 0 ? 0 : 1);
+  return (
+    <li className="meter-row">
+      <span className="meter-row-label" title={props.label}>
+        {props.label}
+      </span>
+      <span className="meter-track" aria-hidden="true">
+        <i
+          style={{ width: `${Math.max(share * 100, 0.5)}%` }}
+          aria-hidden="true"
+        />
+      </span>
+      <span className="meter-row-value num">
+        {props.display}
+        <span className="muted small"> · {percent}%</span>
+      </span>
+    </li>
   );
 }
 
@@ -25,9 +54,9 @@ export function StatsPage() {
     let active = true;
     const load = () => {
       publicFetch<StatsResponse>(`/api/stats?range=${range}`)
-        .then((body) => {
+        .then((payload) => {
           if (!active) return;
-          setData(body);
+          setData(payload);
           setError(null);
         })
         .catch((cause: unknown) => {
@@ -44,9 +73,34 @@ export function StatsPage() {
   }, [range]);
 
   const totals = data?.totals;
+  const tokenTotal = totals?.totalTokens ?? 0;
+
+  const transferTotal = useMemo(
+    () =>
+      (data?.byTransfer ?? []).reduce((sum, row) => sum + row.totalTokens, 0),
+    [data],
+  );
+
+  const modelTotal = useMemo(
+    () => (data?.byModel ?? []).reduce((sum, row) => sum + row.totalTokens, 0),
+    [data],
+  );
+
+  const transfer = data?.byTransfer ?? [];
+  const requestTotal = useMemo(
+    () => transfer.reduce((sum, row) => sum + row.requests, 0),
+    [transfer],
+  );
+  const streamedRequests = useMemo(
+    () => transfer.find((row) => row.label === "Streamed")?.requests ?? 0,
+    [transfer],
+  );
+
+  const promptShare =
+    tokenTotal > 0 ? (totals?.promptTokens ?? 0) / tokenTotal : 0;
 
   return (
-    <div className="stats-page">
+    <div className="meter">
       <header className="site-head">
         <a
           className="wordmark"
@@ -93,13 +147,37 @@ export function StatsPage() {
         </div>
       ) : null}
 
-      <section className="hero-strip" aria-label="Totals">
-        <HeroItem label="Requests" value={totals?.requests ?? 0} />
-        <HeroItem label="Tokens" value={totals?.totalTokens ?? 0} />
-        <HeroItem label="Prompt" value={totals?.promptTokens ?? 0} />
-        <HeroItem label="Completion" value={totals?.completionTokens ?? 0} />
-        <HeroItem label="Errors" value={totals?.errors ?? 0} />
-        <HeroItem label="Estimated" value={totals?.estimatedRequests ?? 0} />
+      <section className="readout" aria-label="Totals">
+        <Readout
+          label="Tokens processed"
+          value={formatNumber(tokenTotal)}
+          note={`${formatNumber(totals?.requests ?? 0)} requests`}
+        />
+        <div className="readout-cells">
+          <Readout
+            label="Prompt"
+            value={formatNumber(totals?.promptTokens ?? 0)}
+            note={`${(promptShare * 100).toFixed(0)}% of tokens`}
+          />
+          <Readout
+            label="Completion"
+            value={formatNumber(totals?.completionTokens ?? 0)}
+          />
+          <Readout
+            label="Avg completion"
+            value={formatNumber(totals?.averageCompletionTokens ?? 0)}
+            note="tokens per request"
+          />
+          <Readout
+            label="Models served"
+            value={formatNumber(data?.byModel.length ?? 0)}
+          />
+          <Readout
+            label="Errors"
+            value={formatNumber(totals?.errors ?? 0)}
+            note={`${formatNumber(totals?.estimatedRequests ?? 0)} estimated`}
+          />
+        </div>
       </section>
 
       <section className="panel">
@@ -126,178 +204,87 @@ export function StatsPage() {
         <BarChart series={data?.series ?? []} range={range} />
       </section>
 
-      <div className="grid-two">
-        <section className="panel" style={{ padding: 0 }}>
-          <div className="panel-head" style={{ padding: "14px 16px 0" }}>
+      <div className="meter-grid">
+        <section className="panel">
+          <div className="panel-head">
             <h2>By model</h2>
           </div>
-          <Table
-            columns={[
-              { key: "model", label: "Model" },
-              { key: "provider", label: "Provider" },
-              { key: "requests", label: "Requests", numeric: true },
-              { key: "tokens", label: "Tokens", numeric: true },
-            ]}
-            stack
-            empty={(data?.byModel.length ?? 0) === 0 ? "No traffic yet." : null}
-          >
-            {(data?.byModel ?? []).map((row) => (
-              <tr key={`${row.provider}:${row.label}`}>
-                <td data-label="Model" className="mono">
-                  {row.label}
-                </td>
-                <td data-label="Provider">{row.provider}</td>
-                <td data-label="Requests" className="num">
-                  {formatNumber(row.requests)}
-                </td>
-                <td data-label="Tokens" className="num">
-                  {formatNumber(row.totalTokens)}
-                </td>
-              </tr>
-            ))}
-          </Table>
+          {(data?.byModel.length ?? 0) === 0 ? (
+            <p className="small muted">No traffic yet.</p>
+          ) : (
+            <ul className="meter-list">
+              {(data?.byModel ?? []).map((row) => (
+                <Meter
+                  key={row.label}
+                  label={row.label}
+                  value={row.totalTokens}
+                  total={modelTotal}
+                  display={formatNumber(row.totalTokens)}
+                />
+              ))}
+            </ul>
+          )}
         </section>
 
-        <section className="panel" style={{ padding: 0 }}>
-          <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-            <h2>By provider</h2>
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Delivery</h2>
           </div>
-          <Table
-            columns={[
-              { key: "provider", label: "Provider" },
-              { key: "requests", label: "Requests", numeric: true },
-              { key: "tokens", label: "Tokens", numeric: true },
-            ]}
-            stack
-            empty={
-              (data?.byProvider.length ?? 0) === 0 ? "No traffic yet." : null
-            }
-          >
-            {(data?.byProvider ?? []).map((row) => (
-              <tr key={row.label}>
-                <td data-label="Provider">{row.label}</td>
-                <td data-label="Requests" className="num">
-                  {formatNumber(row.requests)}
-                </td>
-                <td data-label="Tokens" className="num">
-                  {formatNumber(row.totalTokens)}
-                </td>
-              </tr>
+          <ul className="meter-list">
+            {(data?.byTransfer ?? []).map((row) => (
+              <Meter
+                key={row.label}
+                label={row.label}
+                value={row.totalTokens}
+                total={transferTotal}
+                display={formatNumber(row.totalTokens)}
+              />
             ))}
-          </Table>
-        </section>
-
-        <section className="panel" style={{ padding: 0 }}>
-          <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-            <h2>By client key</h2>
-          </div>
-          <Table
-            columns={[
-              { key: "key", label: "Client key" },
-              { key: "prefix", label: "Prefix" },
-              { key: "requests", label: "Requests", numeric: true },
-              { key: "tokens", label: "Tokens", numeric: true },
-            ]}
-            stack
-            empty={
-              (data?.byClientKey.length ?? 0) === 0 ? "No traffic yet." : null
-            }
-          >
-            {(data?.byClientKey ?? []).map((row) => (
-              <tr key={`${row.label}:${row.prefix}`}>
-                <td data-label="Client key">{row.label}</td>
-                <td data-label="Prefix" className="mono small">
-                  {row.prefix || "—"}
-                </td>
-                <td data-label="Requests" className="num">
-                  {formatNumber(row.requests)}
-                </td>
-                <td data-label="Tokens" className="num">
-                  {formatNumber(row.totalTokens)}
-                </td>
-              </tr>
-            ))}
-          </Table>
+          </ul>
+          <p className="small muted meter-foot">
+            {formatNumber(streamedRequests)} of {formatNumber(requestTotal)}{" "}
+            requests streamed.
+          </p>
         </section>
 
         <section className="panel">
           <div className="panel-head">
             <h2>Today</h2>
           </div>
-          <p className="small muted" style={{ marginBottom: 8 }}>
+          <div className="stack-figures">
+            <Readout
+              label="Requests"
+              value={formatNumber(data?.today.requests ?? 0)}
+            />
+            <Readout
+              label="Tokens"
+              value={formatNumber(data?.today.totalTokens ?? 0)}
+            />
+          </div>
+          <p className="small muted meter-foot">
             UTC day, independent of the selected range.
           </p>
-          <div style={{ display: "flex", gap: 24 }}>
-            <div>
-              <span className="hero-label">Requests</span>
-              <span className="hero-value">
-                {formatNumber(data?.today.requests ?? 0)}
-              </span>
-            </div>
-            <div>
-              <span className="hero-label">Tokens</span>
-              <span className="hero-value">
-                {formatNumber(data?.today.totalTokens ?? 0)}
-              </span>
-            </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Spread</h2>
           </div>
+          <div className="stack-figures">
+            <Readout
+              label="Active client keys"
+              value={formatNumber(data?.activeUsers.clientKeys ?? 0)}
+            />
+            <Readout
+              label="Upstreams used"
+              value={formatNumber(data?.activeUsers.providers ?? 0)}
+            />
+          </div>
+          <p className="small muted meter-foot">
+            Counts only — no names or identifiers are published.
+          </p>
         </section>
       </div>
-
-      <section className="panel" style={{ marginTop: 20, padding: 0 }}>
-        <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-          <h2>Recent requests</h2>
-        </div>
-        <Table
-          columns={[
-            { key: "time", label: "Time" },
-            { key: "endpoint", label: "Endpoint" },
-            { key: "model", label: "Model" },
-            { key: "provider", label: "Provider" },
-            { key: "client", label: "Client key" },
-            { key: "status", label: "Status", numeric: true },
-            { key: "tokens", label: "Tokens", numeric: true },
-            { key: "latency", label: "Latency", numeric: true },
-          ]}
-          stack
-          empty={
-            (data?.recent.length ?? 0) === 0
-              ? "Traffic will appear here after the first proxied request."
-              : null
-          }
-        >
-          {(data?.recent ?? []).map((row) => (
-            <tr key={row.requestId}>
-              <td data-label="Time" className="mono small">
-                {formatTime(row.createdAt)}
-              </td>
-              <td data-label="Endpoint" className="mono small">
-                {row.endpoint}
-              </td>
-              <td data-label="Model" className="mono small">
-                {row.model || "—"}
-              </td>
-              <td data-label="Provider">{row.provider}</td>
-              <td data-label="Client key">{row.clientKey}</td>
-              <td data-label="Status" className="num">
-                {row.status}
-                {row.streamed ? (
-                  <span className="muted small"> · stream</span>
-                ) : null}
-              </td>
-              <td data-label="Tokens" className="num">
-                {formatNumber(row.totalTokens)}
-                {row.estimated ? (
-                  <span className="muted small"> · est</span>
-                ) : null}
-              </td>
-              <td data-label="Latency" className="num">
-                {formatNumber(row.latencyMs)} ms
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </section>
     </div>
   );
 }

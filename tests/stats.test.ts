@@ -16,6 +16,7 @@ describe("public statistics", () => {
   let alphaProviderId: number;
   let betaProviderId: number;
   let clientKeyId: number;
+  let clientKeyLabel = "ck";
   let clientKeyToken: string;
 
   const stats = async (range: string): Promise<StatsResponse> => {
@@ -122,6 +123,7 @@ describe("public statistics", () => {
       totalTokens: 75,
       estimatedRequests: 1,
       errors: 1,
+      averageCompletionTokens: 5,
     });
     expect(body.today.requests).toBeGreaterThanOrEqual(1);
     expect(body.today.totalTokens).toBeGreaterThanOrEqual(10);
@@ -149,43 +151,58 @@ describe("public statistics", () => {
     );
   });
 
-  test("breakdowns are ordered by total tokens", async () => {
+  test("breakdowns expose models and transfer mode, never identities", async () => {
     const body = await stats("all");
-    expect(
-      body.byModel.map((row) => [row.label, row.provider, row.totalTokens]),
-    ).toEqual([
-      ["beta-1", "beta", 50],
-      ["alpha-1", "alpha", 25],
+    expect(body.byModel.map((row) => [row.label, row.totalTokens])).toEqual([
+      ["beta-1", 50],
+      ["alpha-1", 25],
     ]);
-    expect(body.byProvider.map((row) => [row.label, row.totalTokens])).toEqual([
-      ["beta", 50],
-      ["alpha", 25],
+    expect(body.byModel.map((row) => row.requests)).toEqual([1, 3]);
+    expect(body.byTransfer).toEqual([
+      { label: "Streamed", requests: 1, totalTokens: 10 },
+      { label: "Buffered", requests: 3, totalTokens: 65 },
     ]);
-    expect(body.byClientKey).toEqual([
-      {
-        label: "ck",
-        prefix: expect.stringMatching(/^sk-brokey-/),
-        requests: 4,
-        totalTokens: 75,
-      },
-    ]);
+    expect(body.activeUsers).toEqual({ clientKeys: 1, providers: 2 });
   });
 
-  test("recent requests are newest first and public without auth", async () => {
+  test("the public payload omits providers, client keys and per-request rows", async () => {
     const response = await fetch(`${app.baseUrl}/api/stats`);
     expect(response.status).toBe(200);
     const text = await response.text();
-    // The key prefix is public by design; the full token and hashes must not leak.
+    // Nothing that identifies a client key, its prefix, or a provider may appear.
     expect(text).not.toContain(clientKeyToken);
     expect(text).not.toContain("key_hash");
     expect(text).not.toContain("keyHash");
+    expect(text).not.toContain(`:${clientKeyLabel}`);
+    expect(text).not.toContain(`"${clientKeyLabel}"`);
+    // The payload may only carry model IDs as names — no identifier columns.
+    const flat = JSON.stringify(JSON.parse(text));
+    for (const forbidden of [
+      "recent",
+      "byProvider",
+      "byClientKey",
+      "prefix",
+      "clientKeyLabel",
+      "providerName",
+      "requestId",
+      "latencyMs",
+      "endpoint",
+    ]) {
+      expect(flat).not.toContain(`"${forbidden}"`);
+    }
     const body = JSON.parse(text) as StatsResponse;
+    expect(Object.keys(body).sort()).toEqual([
+      "activeUsers",
+      "byModel",
+      "byTransfer",
+      "generatedAt",
+      "range",
+      "series",
+      "today",
+      "totals",
+    ]);
     expect(body.range).toBe("30d");
-    expect(body.recent.length).toBe(4);
-    const timestamps = body.recent.map((row) => row.createdAt);
-    expect([...timestamps].sort((a, b) => b - a)).toEqual(timestamps);
-    expect(body.recent[0]?.streamed).toBe(true);
-    expect(body.recent[0]?.model).toBe("alpha-1");
+    expect(body.byModel.map((row) => row.label)).toEqual(["beta-1", "alpha-1"]);
   });
 
   test("logs keep snapshot labels after the provider and client key are deleted", async () => {
@@ -199,10 +216,10 @@ describe("public statistics", () => {
     const body = await stats("all");
     expect(body.totals.requests).toBe(4);
     expect(body.byModel.map((row) => row.label)).toEqual(["beta-1", "alpha-1"]);
-    expect(body.byProvider.map((row) => row.label)).toEqual(["beta", "alpha"]);
-    expect(body.byClientKey).toEqual([
-      { label: "ck", prefix: "", requests: 4, totalTokens: 75 },
-    ]);
+    expect(body.byTransfer.map((row) => row.requests)).toEqual([1, 3]);
+    // Deleting the key and provider nulls the foreign keys on the log rows, so
+    // the distinct counts drop while the labels baked into the rows survive.
+    expect(body.activeUsers).toEqual({ clientKeys: 0, providers: 1 });
     expect(
       await adminJson<{ providers: unknown[] }>(app, "/api/admin/providers"),
     ).toEqual({

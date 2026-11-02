@@ -81,9 +81,15 @@ Responses carry `x-brokey-request-id`, and limited client keys also get
 
 ## Statistics
 
-`http://localhost:3000/` is a no-auth dashboard (requests, tokens, per-model,
-per-provider, per-client-key breakdowns and the latest requests). The same data
-is available as JSON at `/api/stats?range=24h|7d|30d|all`.
+`http://localhost:3000/` is a no-auth dashboard: total tokens, requests, prompt
+vs completion split, average completion size, per-model token shares and a
+traffic chart — numbers only. The same data is available as JSON at
+`/api/stats?range=24h|7d|30d|all`.
+
+The endpoint is unauthenticated, so it deliberately emits no identifying data:
+no provider names, no client key names or prefixes, no per-request rows (no
+endpoints, latencies, status codes or request IDs). Provider and key identities
+live in the authenticated Usage page (`/admin/usage`) instead.
 
 ## Building a single binary
 
