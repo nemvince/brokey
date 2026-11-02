@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
+import { providerKeys, usageLogs } from "../src/server/schema.ts";
 import {
   adminJson,
   adminRequest,
@@ -561,5 +563,93 @@ describe("streaming fallback when the upstream rejects stream_options", () => {
     expect(row?.estimated).toBe(true);
     expect(row?.promptTokens).toBeGreaterThan(0);
     expect(row?.completionTokens).toBeGreaterThan(0);
+  });
+});
+
+describe("upstream stream failure after headers", () => {
+  let app: TestApp;
+  let mock: MockUpstream;
+  let token: string;
+  let keyId: number;
+
+  beforeAll(async () => {
+    app = startTestApp();
+    mock = startMockUpstream();
+    const provider = await seedProvider(app, {
+      name: "flaky",
+      baseUrl: mock.baseUrl,
+      secrets: ["sk-flaky"],
+    });
+    keyId = provider.keyIds[0] as number;
+    await seedModel(app, provider.providerId, {
+      upstreamId: "upstream-mock-chat",
+      publicId: "flaky-chat",
+    });
+    token = (await seedClientKey(app, { name: "flaky-key" })).token;
+
+    mock.chatHandler = () => {
+      const encoder = new TextEncoder();
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  choices: [
+                    { delta: { tool_calls: [{ index: 0, id: "call_1" }] } },
+                  ],
+                })}\n\n`,
+              ),
+            );
+            await Bun.sleep(10);
+            controller.error(
+              new Error(
+                "ECONNRESET: The socket connection was closed unexpectedly.",
+              ),
+            );
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    };
+  });
+
+  afterAll(() => {
+    app.stop();
+    mock.stop();
+  });
+
+  test("reports the failure in-band instead of resetting the client", async () => {
+    const response = await proxyRequest(app, "/v1/chat/completions", token, {
+      body: {
+        model: "flaky-chat",
+        stream: true,
+        messages: [{ role: "user", content: "use a tool" }],
+      },
+    });
+    expect(response.status).toBe(200);
+
+    // Reading the body must not throw a transport-level ECONNRESET.
+    const text = await response.text();
+    expect(text).toContain('"code":"stream_error"');
+    expect(text).toContain("ECONNRESET");
+
+    const requestId = response.headers.get("x-brokey-request-id");
+    const row = app.db
+      .select()
+      .from(usageLogs)
+      .where(eq(usageLogs.requestId, requestId ?? ""))
+      .get();
+    expect(row?.status).toBe(502);
+    expect(row?.errorCode).toBe("stream_error");
+    expect(row?.streamed).toBe(true);
+
+    const key = app.db
+      .select()
+      .from(providerKeys)
+      .where(eq(providerKeys.id, keyId))
+      .get();
+    expect(key?.lastError).toContain("ECONNRESET");
+    expect(key?.cooldownUntil ?? 0).toBeGreaterThan(Date.now());
   });
 });

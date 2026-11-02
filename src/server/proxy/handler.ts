@@ -793,6 +793,7 @@ export async function handleProxy(
           injectedUsage,
           clientWantedUsage,
           streaming: true,
+          clientSignal: req.signal,
           onLogged: () => slot.release(),
         });
       }
@@ -970,8 +971,20 @@ type StreamOptions = {
   injectedUsage: boolean;
   clientWantedUsage: boolean;
   streaming: boolean;
+  clientSignal: AbortSignal;
   onLogged: () => void;
 };
+
+function streamErrorEvent(message: string): string {
+  return `data: ${JSON.stringify({
+    error: {
+      message,
+      type: "api_error",
+      param: null,
+      code: "stream_error",
+    },
+  })}\n\n`;
+}
 
 function streamResponse(
   response: Response,
@@ -985,6 +998,7 @@ function streamResponse(
   let observed: TokenUsage | null = null;
   let text = "";
   let logged = false;
+  let cancelled = false;
 
   const record = (status: number, errorCode: string | null) => {
     if (logged) return;
@@ -1056,11 +1070,36 @@ function streamResponse(
         controller.close();
         record(response.status, null);
       } catch (error) {
-        const aborted = isAbort(error);
+        const clientGone =
+          cancelled || options.clientSignal.aborted || isAbort(error);
         record(
-          aborted ? 499 : 502,
-          aborted ? "client_aborted" : "stream_error",
+          clientGone ? 499 : 502,
+          clientGone ? "client_aborted" : "stream_error",
         );
+        if (!clientGone) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          // The key delivered headers but broke the body, so it deserves the
+          // same cooldown as a failed connection.
+          recordKeyFailure(
+            ctx.db,
+            ctx.providerKeyId,
+            networkFailure(),
+            `Upstream stream failed: ${message}`,
+          );
+          if (sse) {
+            // Ending the response with a reset makes clients report a
+            // transport-level ECONNRESET. An in-band error event tells them
+            // what actually failed while keeping the response well-formed.
+            try {
+              controller.enqueue(encoder.encode(streamErrorEvent(message)));
+              controller.close();
+              return;
+            } catch {
+              // the consumer is already gone
+            }
+          }
+        }
         try {
           controller.error(error);
         } catch {
@@ -1069,6 +1108,7 @@ function streamResponse(
       }
     },
     cancel() {
+      cancelled = true;
       reader.cancel().catch(() => undefined);
       record(499, "client_aborted");
     },
@@ -1087,13 +1127,11 @@ function streamResponse(
 
 function isAbort(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  // Match the abort type, never substrings of the message: Bun reports an
+  // upstream reset as `ECONNRESET: The socket connection was closed
+  // unexpectedly`, which is a network failure, not a client abort.
   if ("name" in error && error.name === "AbortError") return true;
-  if ("message" in error && typeof error.message === "string") {
-    return (
-      error.message.includes("aborted") || error.message.includes("closed")
-    );
-  }
-  return false;
+  return "code" in error && error.code === "ABORT_ERR";
 }
 
 type FailedAttemptSummary = {
