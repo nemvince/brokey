@@ -675,3 +675,135 @@ describe("upstream stream failure after headers", () => {
     expect(key?.cooldownUntil ?? 0).toBeGreaterThan(Date.now());
   });
 });
+
+describe("client abandons a stream mid-way", () => {
+  let app: TestApp;
+  let mock: MockUpstream;
+  let token: string;
+  let providerId: number;
+
+  beforeAll(async () => {
+    app = startTestApp();
+    mock = startMockUpstream();
+    const provider = await seedProvider(app, {
+      name: "abandon",
+      baseUrl: mock.baseUrl,
+      secrets: ["sk-abandon"],
+    });
+    providerId = provider.providerId;
+    await seedModel(app, provider.providerId, {
+      upstreamId: "upstream-mock-chat",
+      publicId: "abandon-chat",
+    });
+    token = (await seedClientKey(app, { name: "abandon-key" })).token;
+
+    // Slow downstream frames so the client can hang up while the upstream
+    // stream is still running: the shape every tool-calling agent produces.
+    mock.chatHandler = () => {
+      const frames = [
+        `data: ${JSON.stringify({
+          choices: [{ delta: { role: "assistant", content: "checking" } }],
+        })}`,
+        "",
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                      name: "get_weather",
+                      arguments: '{"city":"Oslo"}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })}`,
+        "",
+        `data: ${JSON.stringify({
+          choices: [{ delta: {}, finish_reason: "tool_calls" }],
+        })}`,
+        "",
+        "data: [DONE]",
+        "",
+        "",
+      ];
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            const encoder = new TextEncoder();
+            for (const frame of frames) {
+              controller.enqueue(encoder.encode(frame + "\n"));
+              await Bun.sleep(30);
+            }
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    };
+  });
+
+  afterAll(() => {
+    app.stop();
+    mock.stop();
+  });
+
+  test("abandoning after the tool call is logged as a success, not 499", async () => {
+    const response = await proxyRequest(app, "/v1/chat/completions", token, {
+      body: {
+        model: "abandon-chat",
+        stream: true,
+        messages: [{ role: "user", content: "weather in Oslo?" }],
+      },
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let abandoned = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.includes('"finish_reason":"tool_calls"')) {
+        await reader.cancel();
+        abandoned = true;
+        break;
+      }
+    }
+    expect(abandoned).toBe(true);
+    // The data the agent needed was delivered before the hang-up.
+    expect(text).toContain('"name":"get_weather"');
+
+    const requestId = response.headers.get("x-brokey-request-id");
+    let row: typeof usageLogs.$inferSelect | undefined;
+    for (let waited = 0; !row && waited < 1500; waited += 25) {
+      await Bun.sleep(25);
+      row = app.db
+        .select()
+        .from(usageLogs)
+        .where(eq(usageLogs.requestId, requestId ?? ""))
+        .get();
+    }
+    expect(row?.status).toBe(200);
+    expect(row?.errorCode).toBeNull();
+    expect(row?.streamed).toBe(true);
+    expect(row?.estimated).toBe(true);
+    // Arguments of the abandoned tool call count towards the estimate.
+    expect(row?.completionTokens).toBeGreaterThan(0);
+
+    // No failure surfaced to the client and the key stayed healthy.
+    expect(text).not.toContain("stream_error");
+    const key = await adminJson<{ keys: { lastError: string | null }[] }>(
+      app,
+      `/api/admin/providers/${providerId}`,
+    );
+    expect(key.keys[0]?.lastError).toBeNull();
+  });
+});

@@ -1070,13 +1070,16 @@ function streamResponse(
         controller.close();
         record(response.status, null);
       } catch (error) {
-        const clientGone =
+        // A client that stops reading mid-stream has not failed anything:
+        // tool-calling agents typically hang up the moment they have the tool
+        // call. Only a broken body with a client still waiting is an upstream
+        // failure (502 + cooldown); abandonment records the delivered result.
+        const abandoned =
           cancelled || options.clientSignal.aborted || isAbort(error);
-        record(
-          clientGone ? 499 : 502,
-          clientGone ? "client_aborted" : "stream_error",
-        );
-        if (!clientGone) {
+        if (abandoned) {
+          record(response.status, null);
+        } else {
+          record(502, "stream_error");
           const message =
             error instanceof Error ? error.message : String(error);
           // The key delivered headers but broke the body, so it deserves the
@@ -1108,9 +1111,10 @@ function streamResponse(
       }
     },
     cancel() {
+      // Flagged before the reader is torn down, so the rejection our own
+      // cancel injects into the pending read classifies as abandonment.
       cancelled = true;
       reader.cancel().catch(() => undefined);
-      record(499, "client_aborted");
     },
   });
 

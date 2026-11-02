@@ -148,9 +148,23 @@ export function extractDeltaText(obj: unknown): string {
     if (!choice || typeof choice !== "object") continue;
     const delta = (choice as Record<string, unknown>).delta;
     if (!delta || typeof delta !== "object") continue;
-    const content = (delta as Record<string, unknown>).content;
+    const record = delta as Record<string, unknown>;
+    const content = record.content;
     if (typeof content === "string") parts.push(content);
     else parts.push(partText(content));
+    // Tool-call argument deltas are model output too; counting them keeps
+    // token estimates sane when the stream ends without a usage chunk.
+    const toolCalls = record.tool_calls;
+    if (Array.isArray(toolCalls)) {
+      for (const call of toolCalls) {
+        if (!call || typeof call !== "object") continue;
+        const fn = (call as Record<string, unknown>).function;
+        if (fn && typeof fn === "object") {
+          const args = (fn as Record<string, unknown>).arguments;
+          if (typeof args === "string") parts.push(args);
+        }
+      }
+    }
   }
   return parts.join("");
 }
