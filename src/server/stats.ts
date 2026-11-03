@@ -118,28 +118,6 @@ export function handleStats(
     .groupBy(usageLogs.modelPublicId)
     .all();
 
-  // Delivered incrementally or as one block — a transfer property, not an identity.
-  const byTransferRows = db
-    .select({
-      streamed: usageLogs.streamed,
-      requests: sql<number>`count(*)`,
-      totalTokens: sql<number>`coalesce(sum(${usageLogs.totalTokens}), 0)`,
-    })
-    .from(usageLogs)
-    .where(rangeWhere)
-    .groupBy(usageLogs.streamed)
-    .all();
-
-  // Only counts: how many keys and upstreams the traffic was spread over.
-  const distinctRows = db
-    .select({
-      clientKeys: sql<number>`count(distinct ${usageLogs.clientKeyId})`,
-      providers: sql<number>`count(distinct ${usageLogs.providerId})`,
-    })
-    .from(usageLogs)
-    .where(rangeWhere)
-    .get();
-
   const payload: StatsResponse = {
     generatedAt: now,
     range,
@@ -173,30 +151,6 @@ export function handleStats(
         totalTokens: asNumber(row.totalTokens),
       })),
     ),
-    byTransfer: [
-      {
-        label: "Streamed",
-        requests: asNumber(
-          byTransferRows.find((row) => row.streamed === true)?.requests,
-        ),
-        totalTokens: asNumber(
-          byTransferRows.find((row) => row.streamed === true)?.totalTokens,
-        ),
-      },
-      {
-        label: "Buffered",
-        requests: asNumber(
-          byTransferRows.find((row) => row.streamed === false)?.requests,
-        ),
-        totalTokens: asNumber(
-          byTransferRows.find((row) => row.streamed === false)?.totalTokens,
-        ),
-      },
-    ],
-    activeUsers: {
-      clientKeys: asNumber(distinctRows?.clientKeys),
-      providers: asNumber(distinctRows?.providers),
-    },
   };
 
   cache = { key: cacheKey, at: now, payload };

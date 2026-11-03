@@ -1,5 +1,6 @@
 import type {
   ClientKeyDTO,
+  ClientKeyError,
   LimitWindow,
   ModelDTO,
   ProviderDTO,
@@ -118,7 +119,17 @@ export function toClientKeyDTO(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastUsedAt: row.lastUsedAt,
+    lastError: toLastErrorDTO(row),
     usage,
+  };
+}
+
+function toLastErrorDTO(row: ClientKeyRow): ClientKeyError | null {
+  if (row.lastErrorAt === null || row.lastErrorStatus === null) return null;
+  return {
+    status: row.lastErrorStatus,
+    message: row.lastErrorMessage ?? "",
+    at: row.lastErrorAt,
   };
 }
 

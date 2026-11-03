@@ -1,6 +1,16 @@
+import {
+  ChartLine,
+  ClockCounterClockwise,
+  Cube,
+  Flask,
+  Key,
+  Lightning,
+  PlugsConnected,
+  SignOut,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { clearAdminToken, getAdminToken } from "./api.ts";
-import { ToastHost } from "./components/ui.tsx";
+import { Button, ToastHost } from "./components/ui.tsx";
 import { navigate, usePathname } from "./router.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { StatsPage } from "./pages/StatsPage.tsx";
@@ -9,13 +19,15 @@ import { ProviderDetailPage } from "./pages/ProviderDetailPage.tsx";
 import { ModelsPage } from "./pages/ModelsPage.tsx";
 import { ClientKeysPage } from "./pages/ClientKeysPage.tsx";
 import { UsagePage } from "./pages/UsagePage.tsx";
+import { PlaygroundPage } from "./pages/PlaygroundPage.tsx";
 import { APP_VERSION } from "./version.ts";
 
 const NAV = [
-  { href: "/admin", label: "Providers" },
-  { href: "/admin/models", label: "Models" },
-  { href: "/admin/keys", label: "Keys" },
-  { href: "/admin/usage", label: "Usage" },
+  { href: "/admin", label: "Providers", icon: PlugsConnected },
+  { href: "/admin/models", label: "Models", icon: Cube },
+  { href: "/admin/keys", label: "Keys", icon: Key },
+  { href: "/admin/usage", label: "Usage", icon: ClockCounterClockwise },
+  { href: "/admin/playground", label: "Playground", icon: Flask },
 ];
 
 function AdminShell(props: {
@@ -26,16 +38,21 @@ function AdminShell(props: {
   return (
     <div className="admin-shell">
       <aside className="rail">
-        <a
-          className="wordmark"
-          href="/admin"
-          onClick={(event) => {
-            event.preventDefault();
-            navigate("/admin");
-          }}
-        >
-          brokey<span>.</span>
-        </a>
+        <div className="rail-brand">
+          <span className="rail-mark" aria-hidden="true">
+            <Lightning size={17} weight="fill" />
+          </span>
+          <a
+            className="wordmark"
+            href="/admin"
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("/admin");
+            }}
+          >
+            brokey<span>.</span>
+          </a>
+        </div>
         <nav className="rail-nav" aria-label="Admin sections">
           {NAV.map((item) => {
             const active =
@@ -54,6 +71,7 @@ function AdminShell(props: {
                   navigate(item.href);
                 }}
               >
+                <item.icon size={18} weight={active ? "fill" : "regular"} />
                 {item.label}
               </a>
             );
@@ -68,16 +86,18 @@ function AdminShell(props: {
               navigate("/");
             }}
           >
+            <ChartLine size={16} />
             Public stats
           </a>
-          <button
-            type="button"
-            className="btn btn-ghost btn-small"
+          <Button
+            variant="ghost"
+            size="small"
+            icon={<SignOut size={16} />}
             onClick={props.onSignOut}
           >
             Sign out
-          </button>
-          <span className="small muted mono">v{APP_VERSION}</span>
+          </Button>
+          <span className="small muted mono version">v{APP_VERSION}</span>
         </div>
       </aside>
       <main className="admin-main">
@@ -120,6 +140,7 @@ function AdminArea(props: { pathname: string }) {
   else if (props.pathname === "/admin/models") page = <ModelsPage />;
   else if (props.pathname === "/admin/keys") page = <ClientKeysPage />;
   else if (props.pathname === "/admin/usage") page = <UsagePage />;
+  else if (props.pathname === "/admin/playground") page = <PlaygroundPage />;
   else page = <ProvidersPage />;
 
   return (

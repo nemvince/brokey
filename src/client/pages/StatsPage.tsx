@@ -1,9 +1,16 @@
+import {
+  ArrowSquareOut,
+  CalendarBlank,
+  ChartLine,
+  Cube,
+} from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import type { StatsRange, StatsResponse } from "../../shared/types.ts";
 import { publicFetch } from "../api.ts";
 import { BarChart } from "../components/BarChart";
 import { Banner, formatCompact } from "../components/ui";
 import { navigate } from "../router";
+import { APP_VERSION } from "../version.ts";
 
 const RANGES: StatsRange[] = ["24h", "7d", "30d", "all"];
 
@@ -75,25 +82,9 @@ export function StatsPage() {
   const totals = data?.totals;
   const tokenTotal = totals?.totalTokens ?? 0;
 
-  const transferTotal = useMemo(
-    () =>
-      (data?.byTransfer ?? []).reduce((sum, row) => sum + row.totalTokens, 0),
-    [data],
-  );
-
   const modelTotal = useMemo(
     () => (data?.byModel ?? []).reduce((sum, row) => sum + row.totalTokens, 0),
     [data],
-  );
-
-  const transfer = data?.byTransfer ?? [];
-  const requestTotal = useMemo(
-    () => transfer.reduce((sum, row) => sum + row.requests, 0),
-    [transfer],
-  );
-  const streamedRequests = useMemo(
-    () => transfer.find((row) => row.label === "Streamed")?.requests ?? 0,
-    [transfer],
   );
 
   const promptShare =
@@ -131,14 +122,16 @@ export function StatsPage() {
         </div>
         <a
           href="/admin"
-          className="small"
+          className="public-link"
           onClick={(event) => {
             event.preventDefault();
             navigate("/admin");
           }}
         >
           Admin
+          <ArrowSquareOut size={14} />
         </a>
+        <span className="small muted mono">v{APP_VERSION}</span>
       </header>
 
       {error ? (
@@ -182,7 +175,12 @@ export function StatsPage() {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>Traffic</h2>
+          <h2>
+            <span className="panel-icon" aria-hidden="true">
+              <ChartLine size={16} />
+            </span>
+            Traffic
+          </h2>
           <span className="spacer" />
           <div className="chart-legend">
             <span>
@@ -207,10 +205,15 @@ export function StatsPage() {
       <div className="meter-grid">
         <section className="panel">
           <div className="panel-head">
-            <h2>By model</h2>
+            <h2>
+              <span className="panel-icon" aria-hidden="true">
+                <Cube size={16} />
+              </span>
+              By model
+            </h2>
           </div>
           {(data?.byModel.length ?? 0) === 0 ? (
-            <p className="small muted">No traffic yet.</p>
+            <p className="small muted">No traffic yet in this range.</p>
           ) : (
             <ul className="meter-list">
               {(data?.byModel ?? []).map((row) => (
@@ -228,28 +231,12 @@ export function StatsPage() {
 
         <section className="panel">
           <div className="panel-head">
-            <h2>Delivery</h2>
-          </div>
-          <ul className="meter-list">
-            {(data?.byTransfer ?? []).map((row) => (
-              <Meter
-                key={row.label}
-                label={row.label}
-                value={row.totalTokens}
-                total={transferTotal}
-                display={formatCompact(row.totalTokens)}
-              />
-            ))}
-          </ul>
-          <p className="small muted meter-foot">
-            {formatCompact(streamedRequests)} of {formatCompact(requestTotal)}{" "}
-            requests streamed.
-          </p>
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Today</h2>
+            <h2>
+              <span className="panel-icon" aria-hidden="true">
+                <CalendarBlank size={16} />
+              </span>
+              Today
+            </h2>
           </div>
           <div className="stack-figures">
             <Readout
@@ -263,25 +250,6 @@ export function StatsPage() {
           </div>
           <p className="small muted meter-foot">
             UTC day, independent of the selected range.
-          </p>
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Spread</h2>
-          </div>
-          <div className="stack-figures">
-            <Readout
-              label="Active client keys"
-              value={formatCompact(data?.activeUsers.clientKeys ?? 0)}
-            />
-            <Readout
-              label="Upstreams used"
-              value={formatCompact(data?.activeUsers.providers ?? 0)}
-            />
-          </div>
-          <p className="small muted meter-foot">
-            Counts only — no names or identifiers are published.
           </p>
         </section>
       </div>

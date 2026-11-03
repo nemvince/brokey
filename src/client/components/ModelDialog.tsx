@@ -1,3 +1,4 @@
+import { Check, Cube } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { ModelDTO, ProviderDTO } from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
@@ -79,11 +80,22 @@ export function ModelDialog(props: {
   return (
     <Modal
       title={editing ? `Edit ${model?.publicId}` : "Add model"}
+      icon={<Cube size={19} />}
+      subtitle={
+        editing
+          ? "Public fields can change; the upstream mapping cannot move."
+          : "Map an upstream model ID to the name clients will call."
+      }
       onClose={props.onClose}
       footer={
         <>
           <Button onClick={props.onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy}>
+          <Button
+            variant="primary"
+            icon={<Check size={16} weight="bold" />}
+            onClick={save}
+            disabled={busy}
+          >
             {editing ? "Save changes" : "Add model"}
           </Button>
         </>

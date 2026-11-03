@@ -1,3 +1,4 @@
+import { Cube, PencilSimple, Plus, Trash, Tray } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { ModelDTO, ProviderDTO } from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
@@ -5,9 +6,12 @@ import {
   Badge,
   Banner,
   Button,
+  EmptyState,
   Field,
   formatAgo,
+  IconButton,
   Modal,
+  PageHead,
   showToast,
   Table,
 } from "../components/ui.tsx";
@@ -70,18 +74,22 @@ export function ModelsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Models</h1>
-        <span className="spacer" />
-        <Button
-          variant="primary"
-          onClick={() => setCreating(true)}
-          disabled={providers.length === 0}
-          title={providers.length === 0 ? "Add a provider first" : undefined}
-        >
-          Add model
-        </Button>
-      </div>
+      <PageHead
+        icon={<Cube size={20} />}
+        title="Models"
+        description="The catalog clients see, and the upstream models it maps to."
+        actions={
+          <Button
+            variant="primary"
+            icon={<Plus size={16} weight="bold" />}
+            onClick={() => setCreating(true)}
+            disabled={providers.length === 0}
+            title={providers.length === 0 ? "Add a provider first" : undefined}
+          >
+            Add model
+          </Button>
+        }
+      />
 
       {error ? <Banner>{error}</Banner> : null}
 
@@ -125,11 +133,21 @@ export function ModelsPage() {
         sticky
         stack
         empty={
-          visible.length === 0
-            ? models.length === 0
-              ? "No models yet. Fetch a provider's catalog or add one manually."
-              : "No models match the current filters."
-            : null
+          visible.length === 0 ? (
+            models.length === 0 ? (
+              <EmptyState
+                icon={<Cube size={20} />}
+                title="No models yet"
+                body="Fetch a provider's catalog to import its models, or add one by hand."
+              />
+            ) : (
+              <EmptyState
+                icon={<Tray size={20} />}
+                title="No models match these filters"
+                body="Clear the search or pick another provider."
+              />
+            )
+          ) : null
         }
       >
         {visible.map((model) => (
@@ -178,16 +196,19 @@ export function ModelsPage() {
             </td>
             <td>
               <span className="row-actions">
-                <Button size="small" onClick={() => setEditing(model)}>
-                  Edit
-                </Button>
-                <Button
+                <IconButton
+                  label="Edit model"
                   size="small"
+                  icon={<PencilSimple size={16} />}
+                  onClick={() => setEditing(model)}
+                />
+                <IconButton
+                  label="Delete model"
                   variant="danger"
+                  size="small"
+                  icon={<Trash size={16} />}
                   onClick={() => setDeleting(model)}
-                >
-                  Delete
-                </Button>
+                />
               </span>
             </td>
           </tr>
@@ -224,11 +245,16 @@ export function ModelsPage() {
       {deleting ? (
         <Modal
           title={`Delete model "${deleting.publicId}"`}
+          icon={<Trash size={19} />}
           onClose={() => setDeleting(null)}
           footer={
             <>
               <Button onClick={() => setDeleting(null)}>Cancel</Button>
-              <Button variant="danger" onClick={remove}>
+              <Button
+                variant="danger"
+                icon={<Trash size={16} />}
+                onClick={remove}
+              >
                 Delete model
               </Button>
             </>

@@ -46,7 +46,11 @@ provider secrets are stored in it in plaintext.
    Paths from the client are appended after that prefix (`/v1/chat/completions`
    becomes `<baseUrl>/chat/completions`).
 3. Add one or more API keys to the provider. Keys are tried least-recently-used
-   first and cooled down automatically on 401/402/403/429/network failures.
+   first and cooled down automatically on 401/402/429, on network failures, and
+   on any response whose body reports a spent quota or allowance — whatever its
+   status. When every key is rejected the client gets brokey's own
+   `all_keys_exhausted` error naming the provider and the reasons, never the
+   provider's quota text.
 4. _Fetch models_ to sync the upstream catalog, choose which models to expose,
    and give each a public ID.
 5. **Keys** → _Create key_ to mint a client token (`sk-brokey-…`). The plaintext
@@ -60,6 +64,12 @@ curl -s http://localhost:3000/v1/chat/completions \
   -H "content-type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'
 ```
+
+**Playground** (`/admin/playground`) sends a prompt to any enabled model without
+needing a client key. A run goes through the same proxy path as a real request,
+so it picks a provider key, honors cooldowns, and appears in Usage — but its log
+row carries no client key, so it never spends a key's quota. Each reply shows
+its status, latency, and token counts.
 
 ```python
 from openai import OpenAI

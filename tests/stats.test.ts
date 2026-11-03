@@ -151,18 +151,13 @@ describe("public statistics", () => {
     );
   });
 
-  test("breakdowns expose models and transfer mode, never identities", async () => {
+  test("breakdowns expose models, never identities", async () => {
     const body = await stats("all");
     expect(body.byModel.map((row) => [row.label, row.totalTokens])).toEqual([
       ["beta-1", 50],
       ["alpha-1", 25],
     ]);
     expect(body.byModel.map((row) => row.requests)).toEqual([1, 3]);
-    expect(body.byTransfer).toEqual([
-      { label: "Streamed", requests: 1, totalTokens: 10 },
-      { label: "Buffered", requests: 3, totalTokens: 65 },
-    ]);
-    expect(body.activeUsers).toEqual({ clientKeys: 1, providers: 2 });
   });
 
   test("the public payload omits providers, client keys and per-request rows", async () => {
@@ -192,9 +187,7 @@ describe("public statistics", () => {
     }
     const body = JSON.parse(text) as StatsResponse;
     expect(Object.keys(body).sort()).toEqual([
-      "activeUsers",
       "byModel",
-      "byTransfer",
       "generatedAt",
       "range",
       "series",
@@ -216,10 +209,6 @@ describe("public statistics", () => {
     const body = await stats("all");
     expect(body.totals.requests).toBe(4);
     expect(body.byModel.map((row) => row.label)).toEqual(["beta-1", "alpha-1"]);
-    expect(body.byTransfer.map((row) => row.requests)).toEqual([1, 3]);
-    // Deleting the key and provider nulls the foreign keys on the log rows, so
-    // the distinct counts drop while the labels baked into the rows survive.
-    expect(body.activeUsers).toEqual({ clientKeys: 0, providers: 1 });
     expect(
       await adminJson<{ providers: unknown[] }>(app, "/api/admin/providers"),
     ).toEqual({

@@ -13,5 +13,10 @@ export const migrations: EmbeddedMigration[] = [
     "name": "20261103122415_brown_miracleman",
     "timestamp": 1793708655000,
     "sql": "CREATE TABLE `egress_health` (\n\t`provider_id` integer NOT NULL,\n\t`egress_key` text NOT NULL,\n\t`failures` integer DEFAULT 0 NOT NULL,\n\t`cooldown_until` integer DEFAULT 0 NOT NULL,\n\t`last_error` text,\n\t`last_ok_at` integer,\n\t`last_used_at` integer,\n\tCONSTRAINT `egress_health_pk` PRIMARY KEY(`provider_id`, `egress_key`),\n\tCONSTRAINT `fk_egress_health_provider_id_providers_id_fk` FOREIGN KEY (`provider_id`) REFERENCES `providers`(`id`) ON DELETE CASCADE\n);\n--> statement-breakpoint\nCREATE TABLE `provider_egress` (\n\t`provider_id` integer PRIMARY KEY,\n\t`strategy` text DEFAULT 'round-robin' NOT NULL,\n\t`entries` text DEFAULT '[]' NOT NULL,\n\t`relay_url` text,\n\t`updated_at` integer NOT NULL,\n\tCONSTRAINT `fk_provider_egress_provider_id_providers_id_fk` FOREIGN KEY (`provider_id`) REFERENCES `providers`(`id`) ON DELETE CASCADE\n);\n--> statement-breakpoint\nALTER TABLE `providers` ADD `kind` text DEFAULT 'openai' NOT NULL;"
+  },
+  {
+    "name": "20261103132539_slippery_the_anarchist",
+    "timestamp": 1793712339000,
+    "sql": "ALTER TABLE `client_keys` ADD `last_error_status` integer;--> statement-breakpoint\nALTER TABLE `client_keys` ADD `last_error_message` text;--> statement-breakpoint\nALTER TABLE `client_keys` ADD `last_error_at` integer;"
   }
 ];

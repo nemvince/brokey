@@ -1,3 +1,10 @@
+import {
+  ArrowRight,
+  PlugsConnected,
+  Plus,
+  Trash,
+  Tray,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { ProviderDTO, ProviderKind } from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
@@ -6,9 +13,12 @@ import {
   Badge,
   Banner,
   Button,
+  EmptyState,
   Field,
   formatAgo,
+  IconButton,
   Modal,
+  PageHead,
   showToast,
   Table,
 } from "../components/ui.tsx";
@@ -122,19 +132,23 @@ export function ProvidersPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Providers</h1>
-        <span className="spacer" />
-        <Button
-          variant="primary"
-          onClick={() => {
-            setDraft({ ...EMPTY_DRAFT });
-            setFormError(null);
-          }}
-        >
-          Add provider
-        </Button>
-      </div>
+      <PageHead
+        icon={<PlugsConnected size={20} />}
+        title="Providers"
+        description="Upstreams brokey can route to, and the keys it rotates through."
+        actions={
+          <Button
+            variant="primary"
+            icon={<Plus size={16} weight="bold" />}
+            onClick={() => {
+              setDraft({ ...EMPTY_DRAFT });
+              setFormError(null);
+            }}
+          >
+            Add provider
+          </Button>
+        }
+      />
 
       {error ? <Banner>{error}</Banner> : null}
 
@@ -151,9 +165,24 @@ export function ProvidersPage() {
         sticky
         stack
         empty={
-          providers.length === 0
-            ? "No providers yet. Add one to get started."
-            : null
+          providers.length === 0 ? (
+            <EmptyState
+              icon={<Tray size={20} />}
+              title="No providers yet"
+              body="Add an OpenAI-compatible provider, then attach one or more API keys."
+              action={
+                <Button
+                  icon={<Plus size={16} weight="bold" />}
+                  onClick={() => {
+                    setDraft({ ...EMPTY_DRAFT });
+                    setFormError(null);
+                  }}
+                >
+                  Add provider
+                </Button>
+              }
+            />
+          ) : null
         }
       >
         {providers.map((provider) => (
@@ -210,22 +239,22 @@ export function ProvidersPage() {
             </td>
             <td>
               <span className="row-actions">
-                <Button
+                <IconButton
+                  label="Manage provider"
                   size="small"
+                  icon={<ArrowRight size={16} />}
                   onClick={() => navigate(`/admin/providers/${provider.id}`)}
-                >
-                  Manage
-                </Button>
-                <Button
-                  size="small"
+                />
+                <IconButton
+                  label="Delete provider"
                   variant="danger"
+                  size="small"
+                  icon={<Trash size={16} />}
                   onClick={() => {
                     setDeleting(provider);
                     setConfirmName("");
                   }}
-                >
-                  Delete
-                </Button>
+                />
               </span>
             </td>
           </tr>
@@ -235,11 +264,18 @@ export function ProvidersPage() {
       {draft ? (
         <Modal
           title="Add provider"
+          icon={<PlugsConnected size={19} />}
+          subtitle="An OpenAI-compatible upstream, or an OpenCode free-tier provider."
           onClose={() => setDraft(null)}
           footer={
             <>
               <Button onClick={() => setDraft(null)}>Cancel</Button>
-              <Button variant="primary" onClick={create} disabled={busy}>
+              <Button
+                variant="primary"
+                icon={<Plus size={16} weight="bold" />}
+                onClick={create}
+                disabled={busy}
+              >
                 Create provider
               </Button>
             </>

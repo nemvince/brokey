@@ -166,6 +166,15 @@ function clampSeconds(seconds: number): number {
   return Math.min(3600, Math.max(1, Math.round(seconds)));
 }
 
+/**
+ * Bodies that say this key's allowance is spent rather than that the request is
+ * malformed. Providers use 402, 403, 429 and even 500 for a spent tenant quota,
+ * so the text decides: a quota error must fail over to another key, never reach
+ * a client as the provider wrote it.
+ */
+const QUOTA_BODY =
+  /insufficient_quota|quota (?:exceeded|exhausted|reached)|exceeded (?:your|the) (?:current )?quota|out of credits?|credit balance|billing|payment required|usage limit|spending limit|allowance (?:is )?(?:exhausted|spent|exceeded)|free[- ]tier limit/i;
+
 /** Map an upstream HTTP failure to cooldown/retry semantics. */
 export function classifyHttpFailure(
   status: number,
@@ -187,14 +196,16 @@ export function classifyHttpFailure(
       errorCode: "payment_required",
     };
   }
+  // Checked before the status: a spent quota is this key's problem whatever
+  // code carries it, and a different key may still have allowance.
+  if (QUOTA_BODY.test(bodyText)) {
+    return {
+      retryable: true,
+      cooldownSeconds: COOLDOWN_QUOTA,
+      errorCode: "quota_exhausted",
+    };
+  }
   if (status === 429) {
-    if (bodyText.includes("insufficient_quota")) {
-      return {
-        retryable: true,
-        cooldownSeconds: COOLDOWN_QUOTA,
-        errorCode: "quota_exhausted",
-      };
-    }
     return {
       retryable: true,
       cooldownSeconds: parseRetryAfter(retryAfterHeader, now),
@@ -202,6 +213,19 @@ export function classifyHttpFailure(
     };
   }
   return { retryable: false, cooldownSeconds: 0, errorCode: `http_${status}` };
+}
+
+const FAILURE_LABELS: Record<string, string> = {
+  quota_exhausted: "quota exhausted",
+  rate_limited: "rate limited",
+  invalid_key: "key rejected",
+  payment_required: "payment required",
+  network_error: "network unreachable",
+};
+
+/** The phrase a "no keys left" error uses for one failure code. */
+export function failureReasonLabel(code: string): string {
+  return FAILURE_LABELS[code] ?? "upstream failure";
 }
 
 export function networkFailure(): KeyFailure {

@@ -1,3 +1,10 @@
+import {
+  CaretLeft,
+  CaretRight,
+  ClockCounterClockwise,
+  FunnelSimple,
+  Tray,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type {
   ClientKeyDTO,
@@ -9,9 +16,13 @@ import {
   Badge,
   Banner,
   Button,
+  EmptyState,
   Field,
   formatNumber,
   formatTime,
+  IconButton,
+  PageHead,
+  Segmented,
   Table,
 } from "../components/ui.tsx";
 
@@ -71,13 +82,16 @@ export function UsagePage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Usage</h1>
-        <span className="spacer" />
-        <span className="small muted">
-          {data ? `${formatNumber(data.total)} requests` : "loading…"}
-        </span>
-      </div>
+      <PageHead
+        icon={<ClockCounterClockwise size={20} />}
+        title="Usage"
+        description="Every request the proxy handled, with the tokens it spent."
+        badge={
+          data ? (
+            <Badge tone="muted">{formatNumber(data.total)} requests</Badge>
+          ) : null
+        }
+      />
 
       {error ? <Banner>{error}</Banner> : null}
 
@@ -130,22 +144,34 @@ export function UsagePage() {
             <option value="error">Error</option>
           </select>
         </Field>
-        <Field label="Range">
-          <select
-            className="select"
-            value={range}
-            onChange={(event) => {
-              setRange(event.target.value);
+        {clientKeyId !== "" || providerId !== "" || status !== "" ? (
+          <Button
+            variant="ghost"
+            size="small"
+            icon={<FunnelSimple size={15} />}
+            onClick={() => {
+              setClientKeyId("");
+              setProviderId("");
+              setStatus("");
               setPage(0);
             }}
           >
-            {RANGE_OPTIONS.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+            Reset filters
+          </Button>
+        ) : null}
+        <span className="spacer" />
+        <Segmented
+          ariaLabel="Time range"
+          value={range}
+          onChange={(next) => {
+            setRange(next);
+            setPage(0);
+          }}
+          options={RANGE_OPTIONS.map((option) => ({
+            value: option.key,
+            label: option.label.replace("Last ", ""),
+          }))}
+        />
       </div>
 
       <Table
@@ -165,9 +191,13 @@ export function UsagePage() {
         sticky
         stack
         empty={
-          data && data.rows.length === 0
-            ? "No requests match these filters."
-            : null
+          data && data.rows.length === 0 ? (
+            <EmptyState
+              icon={<Tray size={20} />}
+              title="No requests match these filters"
+              body="Widen the range or reset the filters to see traffic."
+            />
+          ) : null
         }
       >
         {(data?.rows ?? []).map((row) => (
@@ -224,6 +254,7 @@ export function UsagePage() {
         </span>
         <Button
           size="small"
+          icon={<CaretLeft size={15} />}
           disabled={page === 0}
           onClick={() => setPage((value) => Math.max(0, value - 1))}
         >
@@ -231,6 +262,7 @@ export function UsagePage() {
         </Button>
         <Button
           size="small"
+          iconRight={<CaretRight size={15} />}
           disabled={page + 1 >= totalPages}
           onClick={() => setPage((value) => value + 1)}
         >

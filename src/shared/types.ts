@@ -145,6 +145,13 @@ export type ProviderDetailDTO = ProviderDTO & {
   opencode?: OpenCodeProviderDTO;
 };
 
+/** The most recent failed request signed with a client key. */
+export type ClientKeyError = {
+  status: number;
+  message: string;
+  at: number;
+};
+
 export type ClientKeyDTO = {
   id: number;
   name: string;
@@ -156,6 +163,7 @@ export type ClientKeyDTO = {
   createdAt: number;
   updatedAt: number;
   lastUsedAt: number | null;
+  lastError: ClientKeyError | null;
   usage: { requests: number; tokens: number; windowStart: number | null };
 };
 
@@ -252,10 +260,36 @@ export type StatsResponse = {
   series: { bucket: string; requests: number; totalTokens: number }[];
   /** Model IDs routeable through this proxy. No provider names. */
   byModel: { label: string; requests: number; totalTokens: number }[];
-  /** Requests grouped by a name-free property (e.g. `stream` vs buffered). */
-  byTransfer: { label: string; requests: number; totalTokens: number }[];
-  /** How many distinct client keys and providers carried traffic. */
-  activeUsers: { clientKeys: number; providers: number };
+};
+
+/** A model the playground may send to, enabled end to end. */
+export type PlaygroundModelDTO = {
+  publicId: string;
+  providerName: string;
+  displayName: string;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  providerKind: ProviderKind;
+};
+
+export type PlaygroundMessageRole = "system" | "user" | "assistant";
+
+/**
+ * The text result of one playground run. `content` is the text as it was
+ * streamed, so an aborted run still shows what arrived.
+ */
+export type PlaygroundResult = {
+  status: number;
+  content: string;
+  error: string | null;
+  streamed: boolean;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  requestId: string | null;
+  latencyMs: number;
 };
 
 export type AdminErrorBody = { error: { message: string; code?: string } };

@@ -1,3 +1,7 @@
+import { desc, eq } from "drizzle-orm";
+import type { AppDb } from "../db.ts";
+import { usageLogs } from "../schema.ts";
+
 export type TokenUsage = {
   promptTokens: number;
   completionTokens: number;
@@ -205,4 +209,28 @@ export function hasUsageChunkOnly(obj: unknown): boolean {
   const choices = record.choices;
   const hasEmptyChoices = Array.isArray(choices) && choices.length === 0;
   return hasEmptyChoices && record.usage !== undefined && record.usage !== null;
+}
+
+/**
+ * The token counts the proxy recorded for one request. A streamed response can
+ * omit its usage chunk when the client did not ask for one (the proxy injects
+ * and then strips it), so the log row is the only place the real totals exist.
+ */
+export function loggedUsage(db: AppDb, requestId: string): TokenUsage | null {
+  const row = db
+    .select({
+      prompt: usageLogs.promptTokens,
+      completion: usageLogs.completionTokens,
+    })
+    .from(usageLogs)
+    .where(eq(usageLogs.requestId, requestId))
+    .orderBy(desc(usageLogs.id))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  return {
+    promptTokens: row.prompt,
+    completionTokens: row.completion,
+    totalTokens: row.prompt + row.completion,
+  };
 }

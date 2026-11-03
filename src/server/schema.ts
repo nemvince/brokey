@@ -133,6 +133,10 @@ export const clientKeys = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     lastUsedAt: integer("last_used_at"),
+    /** The most recent failed request signed with this key. */
+    lastErrorStatus: integer("last_error_status"),
+    lastErrorMessage: text("last_error_message"),
+    lastErrorAt: integer("last_error_at"),
   },
   (table) => [uniqueIndex("client_keys_key_hash_unique").on(table.keyHash)],
 );

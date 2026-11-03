@@ -1,3 +1,15 @@
+import {
+  ArrowClockwise,
+  ArrowLeft,
+  Cube,
+  Key,
+  PencilSimple,
+  Plus,
+  Power,
+  PlugsConnected,
+  SlidersHorizontal,
+  Trash,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type {
   ModelDTO,
@@ -11,9 +23,12 @@ import {
   Badge,
   Banner,
   Button,
+  EmptyState,
   Field,
   formatAgo,
+  IconButton,
   Modal,
+  PageHead,
   showToast,
   Table,
 } from "../components/ui.tsx";
@@ -104,7 +119,12 @@ function SettingsForm(props: {
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Settings</h2>
+        <h2>
+          <span className="panel-icon" aria-hidden="true">
+            <SlidersHorizontal size={16} />
+          </span>
+          Settings
+        </h2>
         <span className="spacer" />
         <span className="small muted">
           Last synced {formatAgo(props.detail.lastSyncedAt)}
@@ -209,7 +229,12 @@ export function ProviderDetailPage(props: { providerId: number }) {
       <>
         <Banner>{error}</Banner>
         <div>
-          <Button onClick={() => navigate("/admin")}>Back to providers</Button>
+          <Button
+            icon={<ArrowLeft size={16} />}
+            onClick={() => navigate("/admin")}
+          >
+            Back to providers
+          </Button>
         </div>
       </>
     );
@@ -318,30 +343,51 @@ export function ProviderDetailPage(props: { providerId: number }) {
 
   return (
     <>
-      <div className="page-head">
-        <h1 className="mono">{detail.name}</h1>
-        <Badge tone={detail.enabled ? "ok" : "muted"}>
-          {detail.enabled ? "enabled" : "disabled"}
-        </Badge>
-        <span className="spacer" />
-        <Button
-          onClick={() => {
-            navigate("/admin");
-          }}
-        >
-          Back to providers
-        </Button>
-        <Button variant="primary" onClick={fetchModels} disabled={fetching}>
-          {fetching ? "Fetching…" : "Fetch models"}
-        </Button>
-      </div>
+      <PageHead
+        icon={<PlugsConnected size={20} />}
+        title={<span className="mono">{detail.name}</span>}
+        description={
+          isOpenCode
+            ? "OpenCode free tier: no API key, requests shaped like the CLI's."
+            : "Keys, models and sync for this upstream."
+        }
+        badge={
+          <Badge tone={detail.enabled ? "ok" : "muted"}>
+            {detail.enabled ? "enabled" : "disabled"}
+          </Badge>
+        }
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              icon={<ArrowLeft size={16} />}
+              onClick={() => navigate("/admin")}
+            >
+              Providers
+            </Button>
+            <Button
+              variant="primary"
+              icon={<ArrowClockwise size={16} />}
+              onClick={fetchModels}
+              disabled={fetching}
+            >
+              {fetching ? "Fetching…" : "Fetch models"}
+            </Button>
+          </>
+        }
+      />
 
       <SettingsForm detail={detail} onSaved={load} />
 
       {isOpenCode ? (
         <section className="panel">
           <div className="panel-head">
-            <h2>API keys</h2>
+            <h2>
+              <span className="panel-icon" aria-hidden="true">
+                <Key size={16} />
+              </span>
+              API keys
+            </h2>
           </div>
           <p className="small muted" style={{ margin: 0 }}>
             OpenCode free tier needs no API key.
@@ -349,11 +395,17 @@ export function ProviderDetailPage(props: { providerId: number }) {
         </section>
       ) : (
         <section className="panel" style={{ padding: 0 }}>
-          <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-            <h2>API keys</h2>
+          <div className="panel-head" style={{ padding: "16px 16px 0" }}>
+            <h2>
+              <span className="panel-icon" aria-hidden="true">
+                <Key size={16} />
+              </span>
+              API keys
+            </h2>
             <span className="spacer" />
             <Button
               size="small"
+              icon={<Plus size={15} />}
               onClick={() => {
                 setAddingKey(true);
                 setKeyError(null);
@@ -373,9 +425,24 @@ export function ProviderDetailPage(props: { providerId: number }) {
             ]}
             stack
             empty={
-              detail.keys.length === 0
-                ? "No API keys yet. Requests fail until you add one."
-                : null
+              detail.keys.length === 0 ? (
+                <EmptyState
+                  icon={<Key size={20} />}
+                  title="No API keys yet"
+                  body="Requests to this provider fail until at least one key can serve them."
+                  action={
+                    <Button
+                      icon={<Plus size={16} />}
+                      onClick={() => {
+                        setAddingKey(true);
+                        setKeyError(null);
+                      }}
+                    >
+                      Add key
+                    </Button>
+                  }
+                />
+              ) : null
             }
           >
             {detail.keys.map((key) => (
@@ -406,8 +473,10 @@ export function ProviderDetailPage(props: { providerId: number }) {
                 </td>
                 <td>
                   <span className="row-actions">
-                    <Button
+                    <IconButton
+                      label={key.enabled ? "Disable key" : "Enable key"}
                       size="small"
+                      icon={<Power size={16} />}
                       onClick={() =>
                         patchKey(
                           key,
@@ -415,19 +484,20 @@ export function ProviderDetailPage(props: { providerId: number }) {
                           key.enabled ? "Key disabled." : "Key enabled.",
                         )
                       }
-                    >
-                      {key.enabled ? "Disable" : "Enable"}
-                    </Button>
-                    <Button size="small" onClick={() => resetKey(key)}>
-                      Reset
-                    </Button>
-                    <Button
+                    />
+                    <IconButton
+                      label="Clear cooldown"
                       size="small"
+                      icon={<ArrowClockwise size={16} />}
+                      onClick={() => resetKey(key)}
+                    />
+                    <IconButton
+                      label="Delete key"
                       variant="danger"
+                      size="small"
+                      icon={<Trash size={16} />}
                       onClick={() => deleteKey(key)}
-                    >
-                      Delete
-                    </Button>
+                    />
                   </span>
                 </td>
               </tr>
@@ -439,10 +509,19 @@ export function ProviderDetailPage(props: { providerId: number }) {
       {isOpenCode ? <OpenCodePanels detail={detail} onChanged={load} /> : null}
 
       <section className="panel" style={{ padding: 0 }}>
-        <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-          <h2>Models</h2>
+        <div className="panel-head" style={{ padding: "16px 16px 0" }}>
+          <h2>
+            <span className="panel-icon" aria-hidden="true">
+              <Cube size={16} />
+            </span>
+            Models
+          </h2>
           <span className="spacer" />
-          <Button size="small" onClick={() => setCreatingModel(true)}>
+          <Button
+            size="small"
+            icon={<Plus size={15} />}
+            onClick={() => setCreatingModel(true)}
+          >
             Add model
           </Button>
         </div>
@@ -458,9 +537,22 @@ export function ProviderDetailPage(props: { providerId: number }) {
           ]}
           stack
           empty={
-            detail.models.length === 0
-              ? "No models yet. Fetch the upstream catalog to add some."
-              : null
+            detail.models.length === 0 ? (
+              <EmptyState
+                icon={<Cube size={20} />}
+                title="No models yet"
+                body="Fetch the upstream catalog to import models, then choose which to expose."
+                action={
+                  <Button
+                    icon={<ArrowClockwise size={16} />}
+                    onClick={fetchModels}
+                    disabled={fetching}
+                  >
+                    Fetch models
+                  </Button>
+                }
+              />
+            ) : null
           }
         >
           {detail.models.map((model) => (
@@ -506,16 +598,19 @@ export function ProviderDetailPage(props: { providerId: number }) {
               </td>
               <td>
                 <span className="row-actions">
-                  <Button size="small" onClick={() => setEditingModel(model)}>
-                    Edit
-                  </Button>
-                  <Button
+                  <IconButton
+                    label="Edit model"
                     size="small"
+                    icon={<PencilSimple size={16} />}
+                    onClick={() => setEditingModel(model)}
+                  />
+                  <IconButton
+                    label="Delete model"
                     variant="danger"
+                    size="small"
+                    icon={<Trash size={16} />}
                     onClick={() => deleteModel(model)}
-                  >
-                    Delete
-                  </Button>
+                  />
                 </span>
               </td>
             </tr>
@@ -526,12 +621,15 @@ export function ProviderDetailPage(props: { providerId: number }) {
       {addingKey ? (
         <Modal
           title="Add API key"
+          icon={<Key size={19} />}
+          subtitle="Secrets are write-only and stored in the local database."
           onClose={() => setAddingKey(false)}
           footer={
             <>
               <Button onClick={() => setAddingKey(false)}>Cancel</Button>
               <Button
                 variant="primary"
+                icon={<Plus size={16} weight="bold" />}
                 onClick={addKey}
                 disabled={keyLabel.trim() === "" || keySecret.trim() === ""}
               >

@@ -1,3 +1,12 @@
+import {
+  ArrowsClockwise,
+  Fingerprint,
+  GlobeHemisphereWest,
+  PencilSimple,
+  Plus,
+  Power,
+  Trash,
+} from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import type {
   EgressEntryDTO,
@@ -14,9 +23,11 @@ import {
   Badge,
   Banner,
   Button,
+  EmptyState,
   Field,
   formatAgo,
   formatTime,
+  IconButton,
   Modal,
   showToast,
   Table,
@@ -131,8 +142,13 @@ function IdentityPanel(props: {
 
   return (
     <section className="panel" style={{ padding: 0 }}>
-      <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-        <h2>OpenCode identity</h2>
+      <div className="panel-head" style={{ padding: "16px 16px 0" }}>
+        <h2>
+          <span className="panel-icon" aria-hidden="true">
+            <Fingerprint size={16} />
+          </span>
+          OpenCode identity
+        </h2>
         <span className="spacer" />
         <Badge
           tone={
@@ -352,8 +368,13 @@ function EgressPanel(props: {
 
   return (
     <section className="panel" style={{ padding: 0 }}>
-      <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-        <h2>Egress</h2>
+      <div className="panel-head" style={{ padding: "16px 16px 0" }}>
+        <h2>
+          <span className="panel-icon" aria-hidden="true">
+            <GlobeHemisphereWest size={16} />
+          </span>
+          Egress
+        </h2>
         <span className="spacer" />
         <select
           className="input"
@@ -369,12 +390,18 @@ function EgressPanel(props: {
         </select>
         <Button
           size="small"
+          icon={<ArrowsClockwise size={15} />}
           onClick={testAll}
           disabled={testing || egress.entries.length === 0}
         >
           {testing ? "Testing…" : "Test all"}
         </Button>
-        <Button size="small" onClick={() => setAddOpen(true)} disabled={busy}>
+        <Button
+          size="small"
+          icon={<Plus size={15} />}
+          onClick={() => setAddOpen(true)}
+          disabled={busy}
+        >
           Add egress
         </Button>
       </div>
@@ -388,9 +415,22 @@ function EgressPanel(props: {
         ]}
         stack
         empty={
-          egress.entries.length === 0
-            ? "No egress entries: requests leave from this host."
-            : null
+          egress.entries.length === 0 ? (
+            <EmptyState
+              icon={<GlobeHemisphereWest size={20} />}
+              title="No egress entries"
+              body="Requests leave from this host. Add a proxy to spread them across IPs."
+              action={
+                <Button
+                  icon={<Plus size={16} />}
+                  onClick={() => setAddOpen(true)}
+                  disabled={busy}
+                >
+                  Add egress
+                </Button>
+              }
+            />
+          ) : null
         }
       >
         {egress.entries.map((entry) => {
@@ -462,32 +502,32 @@ function EgressPanel(props: {
               </td>
               <td>
                 <span className="row-actions">
-                  <Button
+                  <IconButton
+                    label={entry.enabled ? "Disable egress" : "Enable egress"}
                     size="small"
+                    icon={<Power size={16} />}
                     onClick={() => toggle(entry)}
                     disabled={busy}
-                  >
-                    {entry.enabled ? "Disable" : "Enable"}
-                  </Button>
-                  <Button
+                  />
+                  <IconButton
+                    label="Replace URL"
                     size="small"
+                    icon={<PencilSimple size={16} />}
                     onClick={() => {
                       setReplacing(entry);
                       setReplaceUrl("");
                       setReplaceError(null);
                     }}
                     disabled={busy}
-                  >
-                    Replace URL
-                  </Button>
-                  <Button
-                    size="small"
+                  />
+                  <IconButton
+                    label="Delete egress"
                     variant="danger"
+                    size="small"
+                    icon={<Trash size={16} />}
                     onClick={() => deleteEntry(entry)}
                     disabled={busy}
-                  >
-                    Delete
-                  </Button>
+                  />
                 </span>
               </td>
             </tr>
@@ -533,12 +573,15 @@ function EgressPanel(props: {
       {addOpen ? (
         <Modal
           title="Add egress"
+          icon={<GlobeHemisphereWest size={19} />}
+          subtitle="Where OpenCode requests leave from. Direct means this host."
           onClose={() => setAddOpen(false)}
           footer={
             <>
               <Button onClick={() => setAddOpen(false)}>Cancel</Button>
               <Button
                 variant="primary"
+                icon={<Plus size={16} weight="bold" />}
                 onClick={addEntry}
                 disabled={busy || (!direct && url.trim() === "") || !weightOk}
               >
@@ -600,6 +643,8 @@ function EgressPanel(props: {
       {replacing ? (
         <Modal
           title={`Replace URL: ${replacing.label}`}
+          icon={<PencilSimple size={19} />}
+          subtitle="The entry keeps its health history and cooldown."
           onClose={() => setReplacing(null)}
           footer={
             <>

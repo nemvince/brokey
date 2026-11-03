@@ -13,6 +13,7 @@ import { authenticateClient } from "../auth.ts";
 import type { LimitWindow } from "../../shared/types.ts";
 import {
   classifyHttpFailure,
+  failureReasonLabel,
   markKeyUsed,
   networkFailure,
   recordKeyFailure,
@@ -441,19 +442,23 @@ export async function handleProxy(
   if (!pool.hasEnabledKeys) {
     return jsonError(
       503,
-      `No enabled API keys for provider "${provider.name}".`,
+      `No API keys are configured for provider "${provider.name}".`,
       "api_error",
       "provider_unavailable",
     );
   }
   if (pool.candidates.length === 0) {
+    // Every key is cooling down. That is brokey's own capacity, so it is said
+    // plainly and in brokey's words: the provider's rate-limit or quota text is
+    // never passed on to a client.
     const waitSeconds = pool.earliestCooldown
       ? Math.max(1, Math.ceil((pool.earliestCooldown - startedAt) / 1000))
       : 60;
+    const count = pool.coolingCount;
     return jsonError(
-      429,
-      "All API keys for this provider are temporarily unavailable.",
-      "rate_limit_error",
+      503,
+      `No usable API keys left for provider "${provider.name}": ${count === 1 ? "its only key is" : `all ${count} keys are`} cooling down after upstream failures. Retry in ${waitSeconds}s.`,
+      "api_error",
       "all_keys_exhausted",
       { "retry-after": String(waitSeconds) },
     );
@@ -493,15 +498,12 @@ export async function handleProxy(
   const upstream = upstreamUrl(provider.baseUrl, pathname, url.search);
   const extraHeaders = parseStoredExtraHeaders(provider.extraHeaders);
 
-  let lastFailure: {
-    status: number;
-    body: string;
-    code: string;
-    headers: Headers;
-  } | null = null;
-  let lastMessage = "";
-  let cooledAny = false;
   let upstreamLatencyMs: number | null = null;
+  // What each rejected key said, in aggregate: the client's final error names
+  // the reasons, never any single provider body.
+  const attemptedReasons = new Set<string>();
+  let attemptedKeys = 0;
+  let exhaustedUntil: number | null = null;
 
   // Reservations make the request cap exact under concurrency; the slot is
   // released when this request's usage row is written.
@@ -563,6 +565,7 @@ export async function handleProxy(
                 totalTokens: estimatedPromptTokens,
               },
               estimated: true,
+              errorMessage: "Client closed request.",
             }),
           );
           return jsonError(
@@ -573,9 +576,14 @@ export async function handleProxy(
           );
         }
         const message = error instanceof Error ? error.message : String(error);
-        lastMessage = `Upstream request failed: ${message}`;
-        recordKeyFailure(db, key.id, networkFailure(), lastMessage);
-        cooledAny = true;
+        recordKeyFailure(
+          db,
+          key.id,
+          networkFailure(),
+          `Upstream request failed: ${message}`,
+        );
+        attemptedKeys += 1;
+        attemptedReasons.add("network_error");
         continue;
       }
       clearTimeout(headerTimer);
@@ -603,12 +611,14 @@ export async function handleProxy(
         } catch (error) {
           const message =
             error instanceof Error ? error.message : String(error);
-          lastMessage = redactSecret(
-            `Upstream request failed: ${message}`,
-            key.secret,
+          recordKeyFailure(
+            db,
+            key.id,
+            networkFailure(),
+            redactSecret(`Upstream request failed: ${message}`, key.secret),
           );
-          recordKeyFailure(db, key.id, networkFailure(), lastMessage);
-          cooledAny = true;
+          attemptedKeys += 1;
+          attemptedReasons.add("network_error");
           continue;
         }
       }
@@ -629,19 +639,16 @@ export async function handleProxy(
           response.headers.get("retry-after"),
         );
         if (failure.retryable) {
-          recordKeyFailure(
+          const until = recordKeyFailure(
             db,
             key.id,
             failure,
             `HTTP ${response.status}: ${text.slice(0, 400)}`,
           );
-          cooledAny = true;
-          lastFailure = {
-            status: response.status,
-            body: text,
-            code: failure.errorCode,
-            headers: response.headers,
-          };
+          attemptedKeys += 1;
+          attemptedReasons.add(failure.errorCode);
+          exhaustedUntil =
+            exhaustedUntil === null ? until : Math.min(exhaustedUntil, until);
           continue;
         }
         recordKeySuccess(db, key.id);
@@ -659,6 +666,7 @@ export async function handleProxy(
             errorCode: `http_${response.status}`,
             usage: EMPTY_USAGE,
             estimated: false,
+            errorMessage: text.trim(),
           }),
         );
         return new Response(errorBytes, {
@@ -701,6 +709,9 @@ export async function handleProxy(
               totalTokens: estimatedPromptTokens,
             },
             estimated: true,
+            errorMessage: aborted
+              ? "Client closed request."
+              : `Upstream response failed: ${message}`,
           }),
         );
         if (aborted)
@@ -726,6 +737,7 @@ export async function handleProxy(
             errorCode: "response_too_large",
             usage: EMPTY_USAGE,
             estimated: false,
+            errorMessage: `Upstream response exceeded ${MAX_UPSTREAM_BODY_BYTES} bytes.`,
           }),
         );
         return jsonError(
@@ -784,9 +796,9 @@ export async function handleProxy(
     startedAt,
     upstreamLatencyMs,
     limitHeaders,
-    lastFailure,
-    lastMessage,
-    cooledAny,
+    attemptedKeys,
+    reasons: attemptedReasons,
+    exhaustedUntil,
     slot,
   });
 }
@@ -817,7 +829,11 @@ function streamResponse(
   let logged = false;
   let cancelled = false;
 
-  const record = (status: number, errorCode: string | null) => {
+  const record = (
+    status: number,
+    errorCode: string | null,
+    errorMessage?: string | null,
+  ) => {
     if (logged) return;
     logged = true;
     const resolved = resolveUsage(
@@ -834,6 +850,7 @@ function streamResponse(
         errorCode,
         usage: resolved.usage,
         estimated: resolved.estimated,
+        errorMessage,
       }),
     );
     options.onLogged();
@@ -896,9 +913,9 @@ function streamResponse(
         if (abandoned) {
           record(response.status, null);
         } else {
-          record(502, "stream_error");
           const message =
             error instanceof Error ? error.message : String(error);
+          record(502, "stream_error", `Upstream stream failed: ${message}`);
           // The key delivered headers but broke the body, so it deserves the
           // same cooldown as a failed connection.
           if (ctx.providerKeyId !== null)
@@ -958,23 +975,31 @@ type FailedAttemptSummary = {
   startedAt: number;
   upstreamLatencyMs: number | null;
   limitHeaders: Record<string, string>;
-  lastFailure: {
-    status: number;
-    body: string;
-    code: string;
-    headers: Headers;
-  } | null;
+  attemptedKeys: number;
+  reasons: ReadonlySet<string>;
+  /** Earliest moment a rejected key may serve again. */
+  exhaustedUntil: number | null;
   slot: RequestSlot;
-  lastMessage: string;
-  cooledAny: boolean;
 };
 
+/**
+ * Every candidate key was rejected. The client gets brokey's own verdict — how
+ * many keys existed, that none of them served, and the distinct reasons — never
+ * the provider's quota or rate-limit body. That body stays on each key's row,
+ * where the provider page shows it to the admin.
+ */
 function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
-  const fallbackStatus = summary.cooledAny ? 429 : 502;
-  const status = summary.lastFailure?.status ?? fallbackStatus;
-  const errorCode =
-    summary.lastFailure?.code ??
-    (summary.cooledAny ? "all_keys_exhausted" : "upstream_unavailable");
+  const waitSeconds =
+    summary.exhaustedUntil === null
+      ? 60
+      : Math.max(1, Math.ceil((summary.exhaustedUntil - Date.now()) / 1000));
+  const reasons = [...summary.reasons].map(failureReasonLabel).join(", ");
+  const count = summary.attemptedKeys;
+  const subject = count === 1 ? "its only key was" : `all ${count} keys were`;
+  const message =
+    `No usable API keys left for provider "${summary.provider.name}": ` +
+    `${count === 0 ? "every key is unavailable" : `${subject} rejected`}` +
+    `${reasons === "" ? "" : ` (${reasons})`}. Retry in ${waitSeconds}s.`;
 
   writeUsageLog(
     db,
@@ -990,8 +1015,8 @@ function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
       endpoint: summary.pathname,
       method: summary.method,
       streamed: summary.streaming,
-      status,
-      errorCode,
+      status: 503,
+      errorCode: "all_keys_exhausted",
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,
@@ -1002,35 +1027,18 @@ function allKeysFailed(db: AppDb, summary: FailedAttemptSummary): Response {
     },
     summary.slot,
   );
+  db.update(clientKeys)
+    .set({
+      lastErrorStatus: 503,
+      lastErrorMessage: message.slice(0, 500),
+      lastErrorAt: Date.now(),
+    })
+    .where(eq(clientKeys.id, summary.clientKey.id))
+    .run();
 
-  if (summary.lastFailure) {
-    return new Response(summary.lastFailure.body, {
-      status: summary.lastFailure.status,
-      headers: decorate(
-        forwardHeaders(summary.lastFailure.headers),
-        summary.requestId,
-        summary.limitHeaders,
-      ),
-    });
-  }
-  if (summary.cooledAny) {
-    return jsonError(
-      429,
-      "All API keys for this provider are temporarily unavailable.",
-      "rate_limit_error",
-      "all_keys_exhausted",
-      {
-        "retry-after": "60",
-        ...summary.limitHeaders,
-        "x-brokey-request-id": summary.requestId,
-      },
-    );
-  }
-  return jsonError(
-    502,
-    summary.lastMessage || "Upstream is unreachable.",
-    "api_error",
-    "upstream_unavailable",
-    { ...summary.limitHeaders, "x-brokey-request-id": summary.requestId },
-  );
+  return jsonError(503, message, "api_error", "all_keys_exhausted", {
+    "retry-after": String(waitSeconds),
+    ...summary.limitHeaders,
+    "x-brokey-request-id": summary.requestId,
+  });
 }

@@ -67,6 +67,26 @@ export function asOptionalInt(
   return value;
 }
 
+/** A finite float in range, for sampling parameters such as temperature. */
+export function asOptionalNumber(
+  value: unknown,
+  field: string,
+  opts: { min?: number; max?: number } = {},
+): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new HttpError(400, `"${field}" must be a number or null.`);
+  }
+  if (opts.min !== undefined && value < opts.min) {
+    throw new HttpError(400, `"${field}" must be >= ${opts.min}.`);
+  }
+  if (opts.max !== undefined && value > opts.max) {
+    throw new HttpError(400, `"${field}" must be <= ${opts.max}.`);
+  }
+  return value;
+}
+
 export function asOptionalString(
   value: unknown,
   field: string,

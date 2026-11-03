@@ -75,6 +75,8 @@ type Logged = {
   errorCode: string | null;
   usage: TokenUsage;
   estimated: boolean;
+  /** Text returned to the client; kept as the client key's last error. */
+  errorMessage?: string | null;
 };
 
 type UpstreamFailure = {
@@ -308,20 +310,44 @@ export async function handleOpenCodeRequest(
   opencode.ensureFresh();
   // Catalog verdicts never block on a fetch: an unknown model is allowed.
   const verdict = opencode.verdict(model.upstreamId);
-  if (verdict === "deprecated")
-    return jsonError(
-      404,
-      `Model '${model.publicId}' has been retired upstream. Free models are listed at /v1/models.`,
-      "invalid_request_error",
-      "model_deprecated",
+  if (verdict === "deprecated" || verdict === "paid") {
+    const status = 404;
+    const errorCode =
+      verdict === "deprecated" ? "model_deprecated" : "model_not_free";
+    const message =
+      verdict === "deprecated"
+        ? `Model '${model.publicId}' has been retired upstream. Free models are listed at /v1/models.`
+        : `Model '${model.publicId}' is not on the OpenCode free tier. Free models are listed at /v1/models.`;
+    writeUsageLog(
+      db,
+      logFor(
+        {
+          db,
+          requestId,
+          clientKey,
+          provider,
+          providerKeyId: null,
+          model,
+          pathname: request.pathname,
+          method: request.method,
+          kind: request.kind,
+          startedAt: request.startedAt,
+          upstreamLatencyMs: null,
+          limitHeaders,
+          estimatedPromptTokens: request.estimatedPromptTokens,
+        },
+        {
+          streamed: payload.stream === true,
+          status,
+          errorCode,
+          usage: EMPTY_USAGE,
+          estimated: false,
+          errorMessage: message,
+        },
+      ),
     );
-  if (verdict === "paid")
-    return jsonError(
-      404,
-      `Model '${model.publicId}' is not on the OpenCode free tier. Free models are listed at /v1/models.`,
-      "invalid_request_error",
-      "model_not_free",
-    );
+    return jsonError(status, message, "invalid_request_error", errorCode);
+  }
 
   const slot: RequestSlot = requestSlot(clientKey.id);
   const streaming = payload.stream === true;
@@ -394,6 +420,7 @@ export async function handleOpenCodeRequest(
             totalTokens: request.estimatedPromptTokens,
           },
           estimated: true,
+          errorMessage: "Client closed request.",
         });
         return jsonError(
           499,
@@ -423,6 +450,7 @@ export async function handleOpenCodeRequest(
         errorCode: "upstream_unavailable",
         usage: EMPTY_USAGE,
         estimated: false,
+        errorMessage: `No configured egress for provider "${provider.name}" could reach upstream.`,
       });
       return jsonError(
         502,
@@ -480,6 +508,7 @@ export async function handleOpenCodeRequest(
         errorCode: "model_protocol_unsupported",
         usage: EMPTY_USAGE,
         estimated: false,
+        errorMessage: `Model '${model.publicId}' requires the Responses API lane, which brokey does not support for OpenCode providers.`,
       });
       return jsonError(
         400,
@@ -519,6 +548,41 @@ export async function handleOpenCodeRequest(
         egress = next;
         continue;
       }
+      // Rotation is exhausted: the free tenant's allowance is gone. That is
+      // brokey's capacity, so the client gets brokey's verdict — the provider's
+      // quota text stays in the egress health record for the admin.
+      if (isGateError(failure)) {
+        const audit = auditGateShape(built.body, headers);
+        opencode.noteGateRejection(provider.id, {
+          at: Date.now(),
+          kind: "free-tier-gate",
+          status: failure.status,
+          logId: response.headers.get("x-opencode-log-id"),
+          shapeOk: audit.shapeOk,
+          missing: audit.missing,
+          model: model.publicId,
+        });
+      }
+      const waitSeconds = Math.round(ALLOWANCE_COOLDOWN_MS / 1000);
+      log({
+        streamed: streaming,
+        status: 503,
+        errorCode: "free_usage_exhausted",
+        usage: EMPTY_USAGE,
+        estimated: false,
+        errorMessage: failure.text.trim(),
+      });
+      return jsonError(
+        503,
+        `No free-tier capacity left for provider "${provider.name}": the upstream allowance is spent. Retry in ${waitSeconds}s.`,
+        "api_error",
+        "free_usage_exhausted",
+        {
+          "retry-after": String(waitSeconds),
+          ...limitHeaders,
+          "x-brokey-request-id": requestId,
+        },
+      );
     }
 
     // 4. A transient upstream failure: the session may be the stale part.
@@ -561,6 +625,7 @@ export async function handleOpenCodeRequest(
           errorCode: "gate_ip_abuse",
           usage: EMPTY_USAGE,
           estimated: false,
+          errorMessage: failure.text.trim(),
         });
         const responseHeaders = headersOut();
         markGate(responseHeaders, "ip-abuse", logId);
@@ -616,6 +681,7 @@ export async function handleOpenCodeRequest(
         errorCode: "gate_free_tier",
         usage: EMPTY_USAGE,
         estimated: false,
+        errorMessage: failure.text.trim(),
       });
       const responseHeaders = headersOut();
       markGate(
@@ -637,6 +703,7 @@ export async function handleOpenCodeRequest(
       errorCode: `http_${failure.status}`,
       usage: EMPTY_USAGE,
       estimated: false,
+      errorMessage: failure.text.trim(),
     });
     return new Response(failure.text, {
       status: failure.status,
@@ -680,7 +747,11 @@ function shapeStream(
   let logged = false;
   let cancelled = false;
 
-  const record = (status: number, errorCode: string | null) => {
+  const record = (
+    status: number,
+    errorCode: string | null,
+    errorMessage?: string | null,
+  ) => {
     if (logged) return;
     logged = true;
     const resolved = resolveUsage(
@@ -695,6 +766,7 @@ function shapeStream(
       errorCode,
       usage: resolved.usage,
       estimated: resolved.estimated,
+      errorMessage,
     });
   };
 
@@ -715,7 +787,7 @@ function shapeStream(
         if (failure !== null) {
           controller.enqueue(encoder.encode(streamErrorEvent(failure)));
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          record(502, "stream_error");
+          record(502, "stream_error", failure);
           return true;
         }
         recordDelta(collected, chunk, shape.aliasToOriginal);
@@ -760,13 +832,13 @@ function shapeStream(
         // client is an upstream failure.
         const abandoned =
           cancelled || shape.clientSignal.aborted || isAbort(error);
+        const message = error instanceof Error ? error.message : String(error);
         record(
           abandoned ? response.status : 502,
           abandoned ? null : "stream_error",
+          abandoned ? null : `Upstream stream failed: ${message}`,
         );
         if (!abandoned) {
-          const message =
-            error instanceof Error ? error.message : String(error);
           try {
             // Ending with a reset makes clients report ECONNRESET; an in-band
             // error event tells them what actually failed.
@@ -897,17 +969,26 @@ async function shapeCompletion(
     shape.attempt.estimatedPromptTokens,
     collected.content,
   );
-  const logOnce = (status: number, errorCode: string | null) =>
+  const logOnce = (
+    status: number,
+    errorCode: string | null,
+    errorMessage?: string | null,
+  ) =>
     shape.log({
       streamed: false,
       status,
       errorCode,
       usage: resolved.usage,
       estimated: resolved.estimated,
+      errorMessage,
     });
 
   if (oversized) {
-    logOnce(502, "response_too_large");
+    logOnce(
+      502,
+      "response_too_large",
+      `Upstream response exceeded ${MAX_UPSTREAM_BODY_BYTES} bytes.`,
+    );
     return jsonError(
       502,
       `Upstream response exceeded ${MAX_UPSTREAM_BODY_BYTES} bytes.`,
@@ -916,7 +997,7 @@ async function shapeCompletion(
     );
   }
   if (error !== null) {
-    logOnce(502, "stream_error");
+    logOnce(502, "stream_error", error);
     return jsonError(502, error, "api_error", "stream_error");
   }
 

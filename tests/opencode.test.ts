@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { desc } from "drizzle-orm";
-import { usageLogs } from "../src/server/schema.ts";
+import { desc, eq } from "drizzle-orm";
+import { egressHealth, usageLogs } from "../src/server/schema.ts";
 import {
   adminJson,
   adminRequest,
@@ -445,6 +445,55 @@ describe("opencode free provider", () => {
     );
     expect(body.error.code).toBe("stream_error");
     expect(body.error.message).toBe("upstream exploded");
+  });
+
+  test("a spent free-tier allowance is reported as brokey capacity", async () => {
+    // With no egress to rotate to, a 429 is the tenant's allowance, not the
+    // client's rate limit. The provider's body must not reach the client.
+    mock.chatHandler = () =>
+      Response.json(
+        {
+          error: {
+            type: "FreeUsageLimitError",
+            message: "service failure: tenant tn-8c7lyrdwe1 quota exceeded",
+          },
+        },
+        { status: 429 },
+      );
+    const response = await proxyRequest(app, "/v1/chat/completions", token, {
+      body: {
+        model: "big-pickle",
+        messages: [{ role: "user", content: "quota" }],
+      },
+    });
+    expect(response.status).toBe(503);
+    const body = await readJson<{ error: { code: string; message: string } }>(
+      response,
+    );
+    expect(body.error.code).toBe("free_usage_exhausted");
+    expect(body.error.message).toBe(
+      'No free-tier capacity left for provider "free": the upstream allowance is spent. Retry in 4800s.',
+    );
+    expect(body.error.message).not.toContain("tenant");
+    expect(Number(response.headers.get("retry-after"))).toBe(4800);
+
+    const logged = app.db
+      .select()
+      .from(usageLogs)
+      .orderBy(desc(usageLogs.id))
+      .limit(1)
+      .all()[0];
+    expect(logged?.status).toBe(503);
+    expect(logged?.errorCode).toBe("free_usage_exhausted");
+
+    // The provider's words stay available to the admin on the egress health row.
+    const health = app.db
+      .select()
+      .from(egressHealth)
+      .where(eq(egressHealth.providerId, providerId))
+      .all();
+    expect(health.some((row) => row.lastError?.includes("tenant"))).toBe(true);
+    mock.chatHandler = () => sse(STREAM_LINES);
   });
 
   test("a family alias routes to the synced free model", async () => {

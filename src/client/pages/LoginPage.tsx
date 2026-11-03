@@ -1,6 +1,8 @@
+import { Lightning, LockKey, SignIn } from "@phosphor-icons/react";
 import { useState } from "react";
 import { ApiError, login } from "../api.ts";
-import { Banner, Button, Field } from "../components/ui.tsx";
+import { Banner, Button, Field, PageHead } from "../components/ui.tsx";
+import { APP_VERSION } from "../version.ts";
 
 export function LoginPage(props: { onSignedIn: () => void }) {
   const [token, setToken] = useState("");
@@ -26,29 +28,27 @@ export function LoginPage(props: { onSignedIn: () => void }) {
   };
 
   return (
-    <div className="stats-page" style={{ maxWidth: 520 }}>
-      <header className="site-head">
-        <a className="wordmark" href="/">
-          brokey<span>.</span>
-        </a>
-        <span className="spacer" />
-        <a className="small" href="/">
-          Public stats
-        </a>
-      </header>
-
-      <section className="panel" style={{ marginTop: 28 }}>
-        <h1 style={{ marginBottom: 6 }}>Admin sign in</h1>
-        <p className="small muted">
-          Paste the token from your server&apos;s <code>ADMIN_TOKEN</code>{" "}
-          environment variable.
-        </p>
+    <div className="login-page">
+      <main className="login-card">
+        <div className="login-brand">
+          <span className="rail-mark" aria-hidden="true">
+            <Lightning size={17} weight="fill" />
+          </span>
+          <span className="wordmark">
+            brokey<span>.</span>
+          </span>
+        </div>
+        <PageHead
+          icon={<LockKey size={20} />}
+          title="Admin sign in"
+          description="Paste the token from your server's ADMIN_TOKEN environment variable."
+        />
         <form
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
-          style={{ display: "grid", gap: 12 }}
+          className="login-form"
         >
           <Field label="Admin token">
             <input
@@ -63,17 +63,24 @@ export function LoginPage(props: { onSignedIn: () => void }) {
           {error ? (
             <Banner tone={adminDisabled ? "warn" : "danger"}>{error}</Banner>
           ) : null}
-          <div>
+          <div className="login-actions">
             <Button
               type="submit"
               variant="primary"
+              icon={<SignIn size={16} />}
               disabled={busy || token.trim() === ""}
             >
               {busy ? "Signing in…" : "Sign in"}
             </Button>
           </div>
         </form>
-      </section>
+        <div className="login-foot">
+          <a className="small" href="/">
+            Public stats
+          </a>
+          <span className="small muted mono">v{APP_VERSION}</span>
+        </div>
+      </main>
     </div>
   );
 }

@@ -28,8 +28,6 @@ type ChatBody = {
 };
 type StatsBody = {
   totals: { requests: number; totalTokens: number };
-  byTransfer: { label: string; requests: number; totalTokens: number }[];
-  activeUsers: { clientKeys: number; providers: number };
 };
 type CatalogModelBody = {
   id: string;
@@ -96,11 +94,6 @@ describe("proxy data path", () => {
     );
     expect(stats.totals.requests).toBe(1);
     expect(stats.totals.totalTokens).toBe(10);
-    // The proxy logs the completion, and the public payload shows it as a
-    // buffered (non-streaming) request without naming the key or provider.
-    const buffered = stats.byTransfer.find((row) => row.label === "Buffered");
-    expect(buffered?.requests).toBe(1);
-    expect(stats.activeUsers).toEqual({ clientKeys: 1, providers: 1 });
   });
 
   test("public model ID is rewritten to the upstream ID", async () => {
@@ -302,6 +295,9 @@ describe("provider key failover", () => {
   });
 });
 
+/** The body a provider actually sent when this was reported. */
+const TENANT_QUOTA = "service failure: tenant tn-8c7lyrdwe1 quota exceeded";
+
 describe("all provider keys exhausted", () => {
   let app: TestApp;
   let mock: MockUpstream;
@@ -312,7 +308,7 @@ describe("all provider keys exhausted", () => {
     mock = startMockUpstream();
     mock.chatHandler = () =>
       Response.json(
-        { error: { message: "quota gone" } },
+        { error: { message: TENANT_QUOTA } },
         { status: 429, headers: { "retry-after": "45" } },
       );
     const provider = await seedProvider(app, {
@@ -332,27 +328,79 @@ describe("all provider keys exhausted", () => {
     mock.stop();
   });
 
-  test("the upstream 429 is forwarded, then 429 all_keys_exhausted", async () => {
+  test("the provider's quota text never reaches the client", async () => {
     const first = await proxyRequest(app, "/v1/chat/completions", token, {
       body: { model: "mock-chat", messages: [] },
     });
-    expect(first.status).toBe(429);
-    expect((await readJson<ErrorBody>(first)).error.message).toContain(
-      "quota gone",
+    expect(first.status).toBe(503);
+    const firstBody = await readJson<ErrorBody>(first);
+    expect(firstBody.error.code).toBe("all_keys_exhausted");
+    // The provider's words are not passed on, in status or in text.
+    expect(firstBody.error.message).not.toContain("tenant");
+    expect(firstBody.error.message).toContain(
+      'No usable API keys left for provider "exhausted"',
     );
+    expect(firstBody.error.message).toContain("rejected (quota exhausted)");
+    expect(Number(first.headers.get("retry-after"))).toBeGreaterThan(0);
 
+    // The same key is now cooling, so the next request never reaches upstream.
     const second = await proxyRequest(app, "/v1/chat/completions", token, {
       body: { model: "mock-chat", messages: [] },
     });
-    expect(second.status).toBe(429);
+    expect(second.status).toBe(503);
     const body = await readJson<ErrorBody>(second);
     expect(body.error.code).toBe("all_keys_exhausted");
-    expect(body.error.message).toBe(
-      "All API keys for this provider are temporarily unavailable.",
+    expect(body.error.message).toContain(
+      "cooling down after upstream failures",
     );
     const retryAfter = Number(second.headers.get("retry-after"));
     expect(retryAfter).toBeGreaterThan(0);
-    expect(retryAfter).toBeLessThanOrEqual(45);
+    expect(retryAfter).toBeLessThanOrEqual(3600);
+  });
+
+  test("the rejected key keeps the provider's text for the admin", async () => {
+    const providers = await adminJson<{
+      providers: { id: number }[];
+    }>(app, "/api/admin/providers");
+    const detail = await adminJson<{ keys: { lastError: string | null }[] }>(
+      app,
+      `/api/admin/providers/${providers.providers[0]?.id}`,
+    );
+    expect(detail.keys[0]?.lastError).toContain(TENANT_QUOTA);
+  });
+
+  test("a tenant quota error on a non-429 status fails over", async () => {
+    // The reported case: the provider reports a spent tenant quota with 403 and
+    // a body no classifier would call a rate limit. The next key must serve it.
+    const provider = await seedProvider(app, {
+      name: "tenant",
+      baseUrl: mock.baseUrl,
+      secrets: ["sk-tenant-a", "sk-tenant-b"],
+    });
+    await seedModel(app, provider.providerId, {
+      upstreamId: "upstream-mock-chat",
+      publicId: "tenant-model",
+    });
+    let attempt = 0;
+    mock.chatHandler = () => {
+      attempt += 1;
+      if (attempt === 1)
+        return Response.json(
+          { error: { message: TENANT_QUOTA } },
+          { status: 403 },
+        );
+      return Response.json({
+        choices: [{ message: { role: "assistant", content: "served" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    };
+    const response = await proxyRequest(app, "/v1/chat/completions", token, {
+      body: { model: "tenant-model", messages: [] },
+    });
+    expect(response.status).toBe(200);
+    const body = await readJson<ChatBody>(response);
+    expect(body.choices[0]?.message.content).toBe("served");
+    expect(attempt).toBe(2);
   });
 });
 
@@ -463,7 +511,7 @@ describe("routing errors", () => {
     expect(response.status).toBe(503);
     const body = await readJson<ErrorBody>(response);
     expect(body.error.message).toBe(
-      'No enabled API keys for provider "routing".',
+      'No API keys are configured for provider "routing".',
     );
   });
 

@@ -62,9 +62,12 @@ describe("credential handling", () => {
       body: { model: "mock-chat", messages: [] },
     });
     const text = await response.text();
-    expect(response.status).toBe(401);
+    // The key is rejected, so the client gets brokey's verdict rather than the
+    // provider's body — which cannot leak the credential because it is never
+    // echoed. The raw, redacted text stays on the key for the admin.
+    expect(response.status).toBe(503);
     expect(text).not.toContain(SECRET);
-    expect(text).toContain("[redacted]");
+    expect(text).toContain("No usable API keys left for provider");
 
     // ...nor into the stored key error that the admin UI renders.
     const detail = await adminJson<ProviderDetailDTO>(
@@ -475,21 +478,20 @@ describe("storage hygiene", () => {
         totalTokens: 5,
       });
 
-      // The public payload never names keys or providers; it only counts them.
+      // The public payload never names keys or providers.
       const first = await readJson<StatsResponse>(
         await fetch(`${app.baseUrl}/api/stats?range=all`),
       );
-      expect(first.activeUsers).toEqual({ clientKeys: 1, providers: 1 });
+      expect(first.totals.totalTokens).toBe(5);
 
       await adminJson(app, `/api/admin/client-keys/${key.id}`, {
         method: "DELETE",
       });
 
-      // The log rows keep their snapshot labels, so the counts survive the delete.
+      // The log rows keep their snapshots, so the totals survive the delete.
       const second = await readJson<StatsResponse>(
         await fetch(`${app.baseUrl}/api/stats?range=all`),
       );
-      expect(second.activeUsers).toEqual({ clientKeys: 0, providers: 1 });
       expect(second.totals.totalTokens).toBe(5);
     } finally {
       app.stop();

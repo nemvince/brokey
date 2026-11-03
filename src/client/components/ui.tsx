@@ -1,4 +1,15 @@
+import {
+  Check,
+  CheckCircle,
+  Copy,
+  Info,
+  WarningCircle,
+  XCircle,
+} from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+
+/** Icons inherit the text colour and sit at a fixed optical size. */
+export const ICON_SIZE = 16;
 
 export function Button(props: {
   children: ReactNode;
@@ -8,12 +19,15 @@ export function Button(props: {
   size?: "normal" | "small";
   disabled?: boolean;
   title?: string;
+  icon?: ReactNode;
+  iconRight?: ReactNode;
 }) {
   const classes = ["btn"];
   if (props.variant === "primary") classes.push("btn-primary");
   if (props.variant === "danger") classes.push("btn-danger");
   if (props.variant === "ghost") classes.push("btn-ghost");
   if (props.size === "small") classes.push("btn-small");
+  if (props.icon) classes.push("btn-with-icon");
   return (
     <button
       type={props.type ?? "button"}
@@ -22,8 +36,71 @@ export function Button(props: {
       disabled={props.disabled}
       title={props.title}
     >
-      {props.children}
+      {props.icon}
+      <span className="btn-label">{props.children}</span>
+      {props.iconRight}
     </button>
+  );
+}
+
+/** A square, icon-only control; the label is carried by `aria-label`+tooltip. */
+export function IconButton(props: {
+  label: string;
+  icon: ReactNode;
+  onClick?: () => void;
+  variant?: "default" | "ghost" | "danger";
+  size?: "normal" | "small";
+  disabled?: boolean;
+  pressed?: boolean;
+}) {
+  const classes = ["btn", "btn-icon-only"];
+  if (props.variant === "danger") classes.push("btn-danger");
+  else if (props.variant !== "default") classes.push("btn-ghost");
+  if (props.size === "small") classes.push("btn-small");
+  return (
+    <button
+      type="button"
+      className={classes.join(" ")}
+      onClick={props.onClick}
+      disabled={props.disabled}
+      aria-label={props.label}
+      title={props.label}
+      aria-pressed={props.pressed}
+    >
+      {props.icon}
+    </button>
+  );
+}
+
+/**
+ * The header every admin page shares: an icon tile, the title, one line of
+ * explanation, and at most two primary actions on the right.
+ */
+export function PageHead(props: {
+  icon: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  back?: ReactNode;
+}) {
+  return (
+    <header className="page-head">
+      <span className="page-head-icon" aria-hidden="true">
+        {props.icon}
+      </span>
+      <div className="page-head-title">
+        <h1>{props.title}</h1>
+        {props.description ? <p>{props.description}</p> : null}
+      </div>
+      {props.badge ? (
+        <div className="page-head-badge">{props.badge}</div>
+      ) : null}
+      <span className="spacer" />
+      {props.actions ? (
+        <div className="page-head-actions">{props.actions}</div>
+      ) : null}
+    </header>
   );
 }
 
@@ -47,9 +124,15 @@ export function Field(props: {
 export function Badge(props: {
   children: ReactNode;
   tone?: "ok" | "warn" | "danger" | "muted";
+  icon?: ReactNode;
 }) {
   const tone = props.tone ?? "muted";
-  return <span className={`badge badge-${tone}`}>{props.children}</span>;
+  return (
+    <span className={`badge badge-${tone}`}>
+      {props.icon ?? <i className="badge-dot" aria-hidden="true" />}
+      {props.children}
+    </span>
+  );
 }
 
 export type Column = { key: string; label: string; numeric?: boolean };
@@ -59,7 +142,7 @@ export function Table(props: {
   children: ReactNode;
   sticky?: boolean;
   stack?: boolean;
-  empty?: string | null;
+  empty?: ReactNode;
 }) {
   const classes = ["table"];
   if (props.sticky) classes.push("sticky");
@@ -95,12 +178,87 @@ export function Table(props: {
   );
 }
 
+/** What a list shows instead of rows: what is missing and how to fix it. */
+export function EmptyState(props: {
+  icon: ReactNode;
+  title: string;
+  body?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="empty-state">
+      <span className="empty-state-icon" aria-hidden="true">
+        {props.icon}
+      </span>
+      <div className="empty-state-text">
+        <strong>{props.title}</strong>
+        {props.body ? <span>{props.body}</span> : null}
+      </div>
+      {props.action ? <div>{props.action}</div> : null}
+    </div>
+  );
+}
+
+/** A row of icon-labelled figures; the workhorse of the inspector panels. */
+export function StatList(props: {
+  items: {
+    label: string;
+    value: ReactNode;
+    icon?: ReactNode;
+    title?: string;
+  }[];
+}) {
+  return (
+    <dl className="stat-list">
+      {props.items.map((item) => (
+        <div key={item.label} title={item.title}>
+          <dt>
+            {item.icon ? (
+              <span className="stat-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+            ) : null}
+            {item.label}
+          </dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Single-choice control where each option may carry its own icon. */
+export function Segmented<T extends string>(props: {
+  value: T;
+  options: { value: T; label: string; icon?: ReactNode }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label={props.ariaLabel}>
+      {props.options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={props.value === option.value}
+          onClick={() => props.onChange(option.value)}
+        >
+          {option.icon}
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Modal(props: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  icon?: ReactNode;
+  subtitle?: string;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef(props.onClose);
@@ -111,8 +269,9 @@ export function Modal(props: {
       if (event.key === "Escape") closeRef.current();
     };
     document.addEventListener("keydown", onKey);
+    // Focus the first field so typing starts in the form, not on Close.
     const focusable = ref.current?.querySelector<HTMLElement>(
-      "input, select, textarea, button",
+      "input, select, textarea",
     );
     focusable?.focus();
     return () => document.removeEventListener("keydown", onKey);
@@ -134,11 +293,24 @@ export function Modal(props: {
         style={props.wide ? { width: "min(900px, 100%)" } : undefined}
       >
         <div className="modal-head">
-          <h2>{props.title}</h2>
+          {props.icon ? (
+            <span className="modal-icon" aria-hidden="true">
+              {props.icon}
+            </span>
+          ) : null}
+          <div className="modal-title">
+            <h2>{props.title}</h2>
+            {props.subtitle ? (
+              <p className="small muted">{props.subtitle}</p>
+            ) : null}
+          </div>
           <span className="spacer" />
-          <Button variant="ghost" onClick={props.onClose}>
-            Close
-          </Button>
+          <IconButton
+            label="Close"
+            variant="ghost"
+            onClick={props.onClose}
+            icon={<XCircle size={18} />}
+          />
         </div>
         <div className="modal-body">{props.children}</div>
         {props.footer ? <div className="modal-foot">{props.footer}</div> : null}
@@ -186,7 +358,12 @@ export function ToastHost() {
           key={toast.id}
           className={`toast${toast.tone === "error" ? " toast-error" : ""}`}
         >
-          {toast.message}
+          {toast.tone === "error" ? (
+            <WarningCircle size={18} aria-hidden="true" />
+          ) : (
+            <CheckCircle size={18} aria-hidden="true" />
+          )}
+          <span>{toast.message}</span>
         </div>
       ))}
     </div>
@@ -198,6 +375,7 @@ export function CopyButton(props: { value: string; label?: string }) {
   return (
     <Button
       size="small"
+      icon={copied ? <Check size={ICON_SIZE} /> : <Copy size={ICON_SIZE} />}
       onClick={() => {
         void navigator.clipboard
           .writeText(props.value)
@@ -218,9 +396,15 @@ export function Banner(props: {
   tone?: "danger" | "info" | "warn";
 }) {
   const tone = props.tone ?? "danger";
+  const ToneIcon =
+    tone === "danger" ? WarningCircle : tone === "warn" ? Info : Info;
   return (
-    <div className={`banner${tone === "danger" ? "" : ` banner-${tone}`}`}>
-      {props.children}
+    <div
+      className={`banner${tone === "danger" ? "" : ` banner-${tone}`}`}
+      role={tone === "danger" ? "alert" : undefined}
+    >
+      <ToneIcon size={18} className="banner-icon" aria-hidden="true" />
+      <div className="banner-text">{props.children}</div>
     </div>
   );
 }

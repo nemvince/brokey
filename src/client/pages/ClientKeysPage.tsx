@@ -1,3 +1,4 @@
+import { Key, PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type {
   ClientKeyCreatedDTO,
@@ -10,10 +11,13 @@ import {
   Banner,
   Button,
   CopyButton,
+  EmptyState,
   Field,
   formatAgo,
   formatNumber,
+  IconButton,
   Modal,
+  PageHead,
   showToast,
   Table,
 } from "../components/ui.tsx";
@@ -22,6 +26,31 @@ const WINDOWS: LimitWindow[] = ["total", "day", "month"];
 
 function limitText(limit: number | null): string {
   return limit === null ? "unlimited" : formatNumber(limit);
+}
+
+/**
+ * Upstream error bodies are often raw JSON envelopes: show the sentence inside
+ * them rather than a wall of braces, and keep the cell to one readable line.
+ */
+function errorSummary(message: string, max = 120): string {
+  let text = message.trim();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const error =
+      parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>).error
+        : null;
+    if (typeof error === "string") text = error;
+    else if (error && typeof error === "object") {
+      const detail = (error as Record<string, unknown>).message;
+      if (typeof detail === "string") text = detail;
+    }
+  } catch {
+    // Not JSON: the body itself is the message.
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  if (text === "") return "No error details.";
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 export function ClientKeysPage() {
@@ -93,20 +122,24 @@ export function ClientKeysPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Client keys</h1>
-        <span className="spacer" />
-        <Button
-          variant="primary"
-          onClick={() => {
-            setCreating(true);
-            setCreatedToken(null);
-            setFormError(null);
-          }}
-        >
-          Create key
-        </Button>
-      </div>
+      <PageHead
+        icon={<Key size={20} />}
+        title="Client keys"
+        description="Tokens your applications use, with optional request and token caps."
+        actions={
+          <Button
+            variant="primary"
+            icon={<Plus size={16} weight="bold" />}
+            onClick={() => {
+              setCreating(true);
+              setCreatedToken(null);
+              setFormError(null);
+            }}
+          >
+            Create key
+          </Button>
+        }
+      />
 
       {error ? <Banner>{error}</Banner> : null}
 
@@ -119,14 +152,31 @@ export function ClientKeysPage() {
           { key: "requests", label: "Requests", numeric: true },
           { key: "tokens", label: "Tokens", numeric: true },
           { key: "lastUsed", label: "Last used" },
+          { key: "lastError", label: "Last error" },
           { key: "actions", label: "" },
         ]}
         sticky
         stack
         empty={
-          keys.length === 0
-            ? "No client keys yet. Create one to start proxying."
-            : null
+          keys.length === 0 ? (
+            <EmptyState
+              icon={<Key size={20} />}
+              title="No client keys yet"
+              body="Mint a token, then point any OpenAI client at /v1 with it."
+              action={
+                <Button
+                  icon={<Plus size={16} weight="bold" />}
+                  onClick={() => {
+                    setCreating(true);
+                    setCreatedToken(null);
+                    setFormError(null);
+                  }}
+                >
+                  Create key
+                </Button>
+              }
+            />
+          ) : null
         }
       >
         {keys.map((key) => (
@@ -153,18 +203,45 @@ export function ClientKeysPage() {
             <td data-label="Last used" className="small muted">
               {formatAgo(key.lastUsedAt)}
             </td>
+            <td data-label="Last error" className="last-error">
+              {key.lastError ? (
+                <>
+                  <span className="last-error-head">
+                    <Badge
+                      tone={key.lastError.status < 500 ? "warn" : "danger"}
+                    >
+                      {key.lastError.status}
+                    </Badge>
+                    <span className="small muted">
+                      {formatAgo(key.lastError.at)}
+                    </span>
+                  </span>
+                  <span
+                    className="small muted last-error-message"
+                    title={key.lastError.message}
+                  >
+                    {errorSummary(key.lastError.message)}
+                  </span>
+                </>
+              ) : (
+                <span className="muted small">—</span>
+              )}
+            </td>
             <td>
               <span className="row-actions">
-                <Button size="small" onClick={() => setEditing(key)}>
-                  Edit
-                </Button>
-                <Button
+                <IconButton
+                  label="Edit key"
                   size="small"
+                  icon={<PencilSimple size={16} />}
+                  onClick={() => setEditing(key)}
+                />
+                <IconButton
+                  label="Delete key"
                   variant="danger"
+                  size="small"
+                  icon={<Trash size={16} />}
                   onClick={() => setDeleting(key)}
-                >
-                  Delete
-                </Button>
+                />
               </span>
             </td>
           </tr>
@@ -173,7 +250,13 @@ export function ClientKeysPage() {
 
       {creating ? (
         <Modal
-          title="Create client key"
+          title={createdToken ? "Key created" : "Create client key"}
+          icon={<Key size={19} />}
+          subtitle={
+            createdToken
+              ? "The token is shown once. Copy it into your application now."
+              : "A token scoped to these limits; requests are counted per window."
+          }
           onClose={() => {
             setCreating(false);
             setCreatedToken(null);
@@ -191,6 +274,7 @@ export function ClientKeysPage() {
               {createdToken ? null : (
                 <Button
                   variant="primary"
+                  icon={<Plus size={16} weight="bold" />}
                   onClick={create}
                   disabled={name.trim() === ""}
                 >
@@ -202,9 +286,10 @@ export function ClientKeysPage() {
         >
           {createdToken ? (
             <div className="key-panel">
-              <strong className="small">
-                Copy this key now — it cannot be shown again.
-              </strong>
+              <span className="key-panel-head">
+                <Key size={18} />
+                This key cannot be shown again
+              </span>
               <span className="key-value">{createdToken}</span>
               <div>
                 <CopyButton value={createdToken} label="Copy key" />
@@ -276,11 +361,16 @@ export function ClientKeysPage() {
       {deleting ? (
         <Modal
           title={`Delete client key "${deleting.name}"`}
+          icon={<Trash size={19} />}
           onClose={() => setDeleting(null)}
           footer={
             <>
               <Button onClick={() => setDeleting(null)}>Cancel</Button>
-              <Button variant="danger" onClick={remove}>
+              <Button
+                variant="danger"
+                icon={<Trash size={16} />}
+                onClick={remove}
+              >
                 Delete key
               </Button>
             </>
@@ -340,6 +430,8 @@ function EditKeyDialog(props: {
   return (
     <Modal
       title={`Edit ${props.clientKey.name}`}
+      icon={<PencilSimple size={19} />}
+      subtitle={props.clientKey.keyPrefix + "…"}
       onClose={props.onClose}
       footer={
         <>

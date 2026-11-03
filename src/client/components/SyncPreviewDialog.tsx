@@ -1,3 +1,4 @@
+import { ArrowsClockwise, Check } from "@phosphor-icons/react";
 import { useState } from "react";
 import type {
   ProviderDetailDTO,
@@ -111,12 +112,19 @@ export function SyncPreviewDialog(props: {
   return (
     <Modal
       title="Sync models"
+      icon={<ArrowsClockwise size={19} />}
+      subtitle="What changes if you apply this catalog now."
       wide
       onClose={props.onClose}
       footer={
         <>
           <Button onClick={props.onClose}>Cancel</Button>
-          <Button variant="primary" onClick={apply} disabled={busy}>
+          <Button
+            variant="primary"
+            icon={<Check size={16} weight="bold" />}
+            onClick={apply}
+            disabled={busy}
+          >
             Apply sync
           </Button>
         </>

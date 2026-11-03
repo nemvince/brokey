@@ -28,6 +28,7 @@ import {
   updateClientKey,
 } from "./client-keys.ts";
 import { listUsage } from "./usage.ts";
+import { listPlaygroundModels, runPlayground } from "./playground.ts";
 import {
   getEgress,
   refreshIdentity,
@@ -160,6 +161,17 @@ const routes: Route[] = [
   },
 
   { method: "GET", pattern: /^\/api\/admin\/usage$/, handler: listUsage },
+
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/playground\/models$/,
+    handler: listPlaygroundModels,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/playground\/run$/,
+    handler: runPlayground,
+  },
 ];
 
 export async function handleAdmin(
