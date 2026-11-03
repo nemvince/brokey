@@ -14,7 +14,12 @@ import {
   providers,
 } from "../schema.ts";
 import { asBool, asRecord, asString } from "../validate.ts";
-import type { ProviderDTO, ProviderDetailDTO } from "../../shared/types.ts";
+import type {
+  ProviderDTO,
+  ProviderDetailDTO,
+  ProviderKind,
+} from "../../shared/types.ts";
+import type { OpenCodeRuntime } from "../proxy/opencode/runtime.ts";
 import {
   type ProviderCounts,
   toModelDTO,
@@ -72,10 +77,14 @@ function providerCounts(
   return counts;
 }
 
+/** The endpoint an OpenCode provider falls back to when its catalog says nothing. */
+export const DEFAULT_OPENCODE_BASE = "https://opencode.ai/inference/openai/v1";
+
 export function getProviderDetail(
   db: AppDb,
   id: number,
   now = Date.now(),
+  opencode?: OpenCodeRuntime,
 ): ProviderDetailDTO {
   const provider = findProvider(db, id);
   const counts = providerCounts(db, id, now);
@@ -91,11 +100,25 @@ export function getProviderDetail(
     .where(eq(models.providerId, id))
     .orderBy(asc(models.publicId))
     .all();
-  return {
+  const detail: ProviderDetailDTO = {
     ...toProviderDTO(provider, counts),
     keys: keys.map((row) => toProviderKeyDTO(row, now)),
     models: providerModelRows.map((row) => toModelDTO(row, provider.name)),
   };
+  if (provider.kind === "opencode" && opencode) {
+    detail.opencode = {
+      identity: opencode.identity(),
+      gate: opencode.gate(provider.id),
+      egress: opencode.egressPool(db, provider.id, now),
+    };
+  }
+  return detail;
+}
+
+function validateKind(value: unknown): ProviderKind {
+  if (value === undefined) return "openai";
+  if (value === "openai" || value === "opencode") return value;
+  throw new HttpError(400, '"kind" must be openai or opencode.');
 }
 
 function validateBaseUrl(value: unknown): string {
@@ -174,7 +197,13 @@ export function listProviders(ctx: AdminCtx): Response {
 export async function createProvider(ctx: AdminCtx): Promise<Response> {
   const body = asRecord(await readJson(ctx.req));
   const name = asString(body.name, "name", { min: 1, max: 64 });
-  const baseUrl = validateBaseUrl(body.baseUrl);
+  const kind = validateKind(body.kind);
+  // An OpenCode provider's endpoint comes from the catalog; its own base URL is
+  // only the fallback for when the catalog cannot be read.
+  const baseUrl =
+    kind === "opencode" && (body.baseUrl === undefined || body.baseUrl === "")
+      ? DEFAULT_OPENCODE_BASE
+      : validateBaseUrl(body.baseUrl);
   const extraHeaders = serializeExtraHeaders(body.extraHeaders);
   const enabled =
     body.enabled === undefined ? true : asBool(body.enabled, "enabled");
@@ -185,6 +214,7 @@ export async function createProvider(ctx: AdminCtx): Promise<Response> {
       .insert(providers)
       .values({
         name,
+        kind,
         baseUrl,
         extraHeaders: extraHeaders ?? null,
         enabled,
@@ -209,6 +239,9 @@ export async function updateProvider(ctx: AdminCtx): Promise<Response> {
   const body = asRecord(await readJson(ctx.req));
 
   const patch: Partial<typeof providers.$inferInsert> = { updatedAt: ctx.now };
+  if (body.kind !== undefined && body.kind !== provider.kind) {
+    throw new HttpError(400, '"kind" cannot be changed after creation.');
+  }
   if (body.name !== undefined)
     patch.name = asString(body.name, "name", { min: 1, max: 64 });
   if (body.baseUrl !== undefined) patch.baseUrl = validateBaseUrl(body.baseUrl);
@@ -233,17 +266,26 @@ export async function updateProvider(ctx: AdminCtx): Promise<Response> {
 export function deleteProvider(ctx: AdminCtx): Response {
   const id = Number(ctx.params[0]);
   findProvider(ctx.db, id);
+  // Drop the runtime-side gate and egress state before the row cascades away.
+  ctx.opencode.forgetProvider(id);
   ctx.db.delete(providers).where(eq(providers.id, id)).run();
   return json({ ok: true });
 }
 
 export function getProvider(ctx: AdminCtx): Response {
-  return json(getProviderDetail(ctx.db, Number(ctx.params[0]), ctx.now));
+  return json(
+    getProviderDetail(ctx.db, Number(ctx.params[0]), ctx.now, ctx.opencode),
+  );
 }
 
 export async function createProviderKey(ctx: AdminCtx): Promise<Response> {
   const id = Number(ctx.params[0]);
-  findProvider(ctx.db, id);
+  if (findProvider(ctx.db, id).kind === "opencode") {
+    throw new HttpError(
+      400,
+      "OpenCode free providers do not use API keys; configure egress entries instead.",
+    );
+  }
   const body = asRecord(await readJson(ctx.req));
   const label = asString(body.label, "label", { min: 1, max: 64 });
   const secret = asString(body.secret, "secret", { min: 1, max: 5000 });

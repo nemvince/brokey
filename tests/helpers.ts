@@ -1,4 +1,5 @@
 import { createApp } from "../src/server/app.ts";
+import type { OpenCodeConfig } from "../src/server/config.ts";
 import type { AppDb } from "../src/server/db.ts";
 import { usageLogs } from "../src/server/schema.ts";
 
@@ -11,13 +12,18 @@ export type TestApp = {
 };
 
 export function startTestApp(
-  options: { adminToken?: string; dbPath?: string } = {},
+  options: {
+    adminToken?: string;
+    dbPath?: string;
+    opencode?: Partial<OpenCodeConfig>;
+  } = {},
 ): TestApp {
   const app = createApp({
     port: 0,
     dbPath: options.dbPath ?? ":memory:",
     adminToken: options.adminToken ?? ADMIN_TOKEN,
     development: false,
+    opencode: options.opencode,
   });
   return {
     db: app.db,
@@ -253,6 +259,32 @@ export async function seedProvider(
     keyIds.push(key.id);
   }
   return { providerId: provider.id, keyIds, name };
+}
+
+/** An OpenCode free provider: no base URL, no API key. */
+export async function seedOpenCodeProvider(
+  app: TestApp,
+  options: {
+    name?: string;
+    baseUrl?: string;
+    enabled?: boolean;
+  } = {},
+): Promise<SeededProvider> {
+  const name =
+    options.name ?? `opencode-${Math.random().toString(36).slice(2, 8)}`;
+  const provider = await adminJson<{ id: number }>(
+    app,
+    "/api/admin/providers",
+    {
+      body: {
+        name,
+        kind: "opencode",
+        ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
+        enabled: options.enabled ?? true,
+      },
+    },
+  );
+  return { providerId: provider.id, keyIds: [], name };
 }
 
 export async function seedModel(

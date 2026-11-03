@@ -3,6 +3,8 @@ import index from "../index.html";
 import { createDb } from "./db.ts";
 import { handleAdmin } from "./admin/router.ts";
 import { handleProxy } from "./proxy/handler.ts";
+import { createOpenCodeRuntime } from "./proxy/opencode/runtime.ts";
+import { defaultOpenCodeConfig, type OpenCodeConfig } from "./config.ts";
 import { handleStats } from "./stats.ts";
 
 export type CreateAppOptions = {
@@ -10,6 +12,7 @@ export type CreateAppOptions = {
   dbPath?: string;
   adminToken?: string;
   development?: boolean;
+  opencode?: Partial<OpenCodeConfig>;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -19,6 +22,13 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const db = createDb(dbPath);
   const raw = db.$client;
+
+  // Per app, not per module: two apps in one process must not share identity,
+  // catalog, sessions, or egress health.
+  const opencode = createOpenCodeRuntime({
+    ...defaultOpenCodeConfig(),
+    ...options.opencode,
+  });
 
   const server = serve({
     port: options.port ?? 3000,
@@ -30,8 +40,8 @@ export function createApp(options: CreateAppOptions = {}) {
       "/api/health": () => Response.json({ ok: true }),
       "/api/stats": (req) => handleStats(req, db),
       "/api/admin/*": (req) =>
-        handleAdmin(req, new URL(req.url), db, adminToken),
-      "/v1/*": (req) => handleProxy(req, { db }),
+        handleAdmin(req, new URL(req.url), db, adminToken, opencode),
+      "/v1/*": (req) => handleProxy(req, { db, opencode }),
       // Bun's HTML bundle route cannot carry custom response headers, so
       // framing is blocked from `src/index.html` instead.
       "/admin": index,

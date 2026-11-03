@@ -2,9 +2,12 @@ export type LimitWindow = "total" | "day" | "month";
 
 export type KeyStatus = "active" | "cooling" | "disabled";
 
+export type ProviderKind = "openai" | "opencode";
+
 export type ProviderDTO = {
   id: number;
   name: string;
+  kind: ProviderKind;
   baseUrl: string;
   extraHeaders: Record<string, string> | null;
   enabled: boolean;
@@ -14,6 +17,92 @@ export type ProviderDTO = {
   keyCount: number;
   modelCount: number;
   keyStatusCounts: { active: number; cooling: number; disabled: number };
+};
+
+export type EgressEntryDTO = {
+  id: string;
+  label: string;
+  /** `host:port` of the proxy, or null for the direct entry. Credentials and paths never leave the server. */
+  host: string | null;
+  direct: boolean;
+  enabled: boolean;
+  weight: number;
+  failures: number;
+  cooling: boolean;
+  cooldownUntil: number | null;
+  lastError: string | null;
+  lastOkAt: number | null;
+  lastUsedAt: number | null;
+};
+
+export type EgressPoolDTO = {
+  strategy: "round-robin" | "failover" | "random";
+  relayHost: string | null;
+  active: boolean;
+  entries: EgressEntryDTO[];
+};
+
+export type EgressEntryUpdate = {
+  id?: string;
+  label?: string;
+  url?: string;
+  enabled?: boolean;
+  weight?: number;
+};
+
+export type EgressPoolUpdate = {
+  strategy?: EgressPoolDTO["strategy"];
+  relayUrl?: string | null;
+  entries?: EgressEntryUpdate[];
+};
+
+export type EgressTestResult = {
+  id: string;
+  label: string;
+  host: string | null;
+  skipped?: true;
+  ok?: boolean;
+  status?: number | null;
+  exitIp?: string | null;
+  latencyMs?: number | null;
+  error?: string | null;
+};
+
+export type OpenCodeIdentityDTO = {
+  version: string;
+  channel: string;
+  source: "static" | "update-api" | "atom-feed";
+  sha: string | null;
+  userAgent: string;
+  sessionPrefix: string;
+  sessionLength: number;
+  chatUrl: string;
+  fetchedAt: number | null;
+  catalogFetchedAt: number | null;
+  availableVersion: string | null;
+  lastError: string | null;
+  catalogError: string | null;
+  refreshInFlight: boolean;
+};
+
+export type OpenCodeGateDTO = {
+  status: "open" | "throttled" | "ip-blocked";
+  throttledUntil: number | null;
+  lastRejection: {
+    at: number;
+    kind: "free-tier-gate" | "ip-abuse";
+    status: number;
+    logId: string | null;
+    shapeOk: boolean;
+    missing: string[];
+    model: string;
+  } | null;
+};
+
+export type OpenCodeProviderDTO = {
+  identity: OpenCodeIdentityDTO;
+  gate: OpenCodeGateDTO;
+  egress: EgressPoolDTO;
 };
 
 export type ProviderKeyDTO = {
@@ -52,6 +141,8 @@ export type ModelDTO = {
 export type ProviderDetailDTO = ProviderDTO & {
   keys: ProviderKeyDTO[];
   models: ModelDTO[];
+  /** Present only for `opencode` providers. */
+  opencode?: OpenCodeProviderDTO;
 };
 
 export type ClientKeyDTO = {

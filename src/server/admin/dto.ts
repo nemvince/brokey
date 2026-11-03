@@ -46,6 +46,7 @@ export function toProviderDTO(
   return {
     id: row.id,
     name: row.name,
+    kind: row.kind === "opencode" ? "opencode" : "openai",
     baseUrl: row.baseUrl,
     extraHeaders: parseExtraHeaders(row.extraHeaders),
     enabled: row.enabled,

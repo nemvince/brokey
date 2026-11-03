@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { AppDb } from "../db.ts";
 import {
   type ClientKeyRow,
@@ -8,7 +8,6 @@ import {
   type ProviderRow,
   providers,
   type UsageLogInsert,
-  usageLogs,
 } from "../schema.ts";
 import { authenticateClient } from "../auth.ts";
 import type { LimitWindow } from "../../shared/types.ts";
@@ -22,11 +21,7 @@ import {
   selectCandidates,
   upstreamUrl,
 } from "./keys.ts";
-import {
-  isValidHeaderName,
-  isValidHeaderValue,
-  RESERVED_EXTRA_HEADERS,
-} from "../headers.ts";
+import { HOP_BY_HOP, parseStoredExtraHeaders } from "../headers.ts";
 import {
   checkLimits,
   remainingHeaders,
@@ -34,12 +29,29 @@ import {
   type RequestSlot,
   usageForWindow,
 } from "./limits.ts";
-import { isEventStream, parseEventJson, SseSplitter } from "./streaming.ts";
+import {
+  isAbort,
+  isEventStream,
+  parseEventJson,
+  parseJsonBytes,
+  readBodyCapped,
+  SseSplitter,
+  streamErrorEvent,
+} from "./streaming.ts";
+import {
+  type AttemptContext,
+  type EndpointKind,
+  logFor,
+  resolveUsage,
+  writeUsageLog,
+} from "./log.ts";
+import { decorate, forwardHeaders, jsonError } from "./response.ts";
+import { handleOpenCodeRequest } from "./opencode/handler.ts";
+import type { OpenCodeRuntime } from "./opencode/runtime.ts";
 import {
   EMPTY_USAGE,
   estimateChatPromptTokens,
   estimateResponsesPromptTokens,
-  estimateTokens,
   extractCompletionText,
   extractDeltaText,
   extractResponsesDeltaText,
@@ -50,19 +62,11 @@ import {
   usageFromChatJson,
 } from "./usage.ts";
 
-export type ProxyCtx = { db: AppDb };
+export type ProxyCtx = { db: AppDb; opencode: OpenCodeRuntime };
 
 const HEADER_TIMEOUT_MS = 120_000;
 const NON_STREAM_TIMEOUT_MS = 120_000;
 
-const HOP_BY_HOP = [
-  "connection",
-  "keep-alive",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-];
 const DROP_REQUEST_HEADERS = [
   "host",
   "authorization",
@@ -70,13 +74,6 @@ const DROP_REQUEST_HEADERS = [
   "accept-encoding",
   // The proxy's own cookies belong to brokey's origin, never to the provider.
   "cookie",
-];
-const DROP_RESPONSE_HEADERS = [
-  "content-encoding",
-  "content-length",
-  "transfer-encoding",
-  "connection",
-  "set-cookie",
 ];
 const STRICT_JSON_PREFIXES = [
   "/v1/chat/completions",
@@ -87,32 +84,6 @@ const STRICT_JSON_PREFIXES = [
 
 /** Provider keys currently handling a request; used only to de-prioritise them. */
 const busyKeys = new Set<number>();
-
-type EndpointKind = "chat" | "responses" | "embeddings" | "other";
-
-type ProxyErrorType =
-  | "invalid_request_error"
-  | "authentication_error"
-  | "permission_error"
-  | "insufficient_quota"
-  | "rate_limit_error"
-  | "api_error";
-
-type AttemptContext = {
-  db: AppDb;
-  requestId: string;
-  clientKey: ClientKeyRow;
-  provider: ProviderRow;
-  providerKeyId: number;
-  model: ModelRow | null;
-  pathname: string;
-  method: string;
-  kind: EndpointKind;
-  startedAt: number;
-  upstreamLatencyMs: number | null;
-  limitHeaders: Record<string, string>;
-  estimatedPromptTokens: number;
-};
 
 function endpointKind(pathname: string): EndpointKind {
   if (pathname.startsWith("/v1/chat/completions")) return "chat";
@@ -133,19 +104,6 @@ function isJsonContentType(contentType: string): boolean {
   return /application\/(json|[a-z0-9.+-]+\+json)/i.test(contentType);
 }
 
-function jsonError(
-  status: number,
-  message: string,
-  type: ProxyErrorType,
-  code: string | null = null,
-  headers?: HeadersInit,
-): Response {
-  return Response.json(
-    { error: { message, type, param: null, code } },
-    { status, headers },
-  );
-}
-
 function modelNotFound(publicId: string): Response {
   return jsonError(
     404,
@@ -153,54 +111,6 @@ function modelNotFound(publicId: string): Response {
     "invalid_request_error",
     "model_not_found",
   );
-}
-
-/**
- * Content types a proxied response may carry. Anything else (notably
- * `text/html` and `image/svg+xml`) is rewritten to octet-stream, so a hostile
- * upstream cannot get script running on brokey's origin where the admin token
- * lives in localStorage.
- */
-const SAFE_RESPONSE_TYPE =
-  /^(application\/json|application\/[a-z0-9.+-]+\+json|text\/event-stream|text\/plain|application\/octet-stream|image\/(png|jpeg|gif|webp)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|multipart\/[a-z0-9.+-]+)/i;
-
-/** Upstream headers that would redirect or re-authenticate the browser. */
-const DROPPED_UPSTREAM_HEADERS = ["location", "refresh", "www-authenticate"];
-
-function forwardHeaders(upstream: HeadersInit): Headers {
-  const headers = new Headers();
-  new Headers(upstream).forEach((value, name) => {
-    const lower = name.toLowerCase();
-    if (DROP_RESPONSE_HEADERS.includes(lower)) return;
-    if (DROPPED_UPSTREAM_HEADERS.includes(lower)) return;
-    if (lower === "content-type") {
-      headers.set(
-        "content-type",
-        SAFE_RESPONSE_TYPE.test(value.trim())
-          ? value
-          : "application/octet-stream",
-      );
-      return;
-    }
-    headers.set(name, value);
-  });
-  headers.set("x-content-type-options", "nosniff");
-  headers.set(
-    "content-security-policy",
-    "default-src 'none'; frame-ancestors 'none'",
-  );
-  return headers;
-}
-
-function decorate(
-  headers: Headers,
-  requestId: string,
-  limitHeaders: Record<string, string>,
-): Headers {
-  headers.set("x-brokey-request-id", requestId);
-  for (const [name, value] of Object.entries(limitHeaders))
-    headers.set(name, value);
-  return headers;
 }
 
 function buildUpstreamHeaders(
@@ -223,25 +133,6 @@ function buildUpstreamHeaders(
   // provider credential this attempt is using.
   headers.set("authorization", `Bearer ${secret}`);
   return headers;
-}
-
-function parseExtraHeaders(raw: string | null): Record<string, string> | null {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    const record = objectValue(parsed);
-    if (!record) return null;
-    const out: Record<string, string> = {};
-    for (const [name, value] of Object.entries(record)) {
-      if (typeof value !== "string") continue;
-      if (!isValidHeaderName(name) || !isValidHeaderValue(value)) continue;
-      if (RESERVED_EXTRA_HEADERS.includes(name.toLowerCase())) continue;
-      out[name] = value;
-    }
-    return out;
-  } catch {
-    return null;
-  }
 }
 
 function estimatePromptTokens(
@@ -323,69 +214,30 @@ function getModelCatalog(db: AppDb, publicId: string): Response {
   return Response.json(catalogModel(row.model, row.providerName));
 }
 
-function writeUsageLog(
+/**
+ * The enabled OpenCode model that answers to an upstream id, lowest id first:
+ * aliases resolve to one row, so two providers cannot both claim a shorthand.
+ */
+function findOpenCodeModel(
   db: AppDb,
-  values: UsageLogInsert,
-  slot?: RequestSlot,
-): void {
-  db.insert(usageLogs).values(values).run();
-  // The row now counts towards the client key's window, so the in-flight
-  // reservation can be dropped.
-  slot?.release();
-}
-
-function logFor(
-  ctx: AttemptContext,
-  extra: {
-    streamed: boolean;
-    status: number;
-    errorCode: string | null;
-    usage: TokenUsage;
-    estimated: boolean;
-  },
-): UsageLogInsert {
-  return {
-    requestId: ctx.requestId,
-    clientKeyId: ctx.clientKey.id,
-    clientKeyLabel: ctx.clientKey.name,
-    providerId: ctx.provider.id,
-    providerName: ctx.provider.name,
-    providerKeyId: ctx.providerKeyId,
-    modelId: ctx.model?.id ?? null,
-    modelPublicId: ctx.model?.publicId ?? "",
-    endpoint: ctx.pathname,
-    method: ctx.method,
-    streamed: extra.streamed,
-    status: extra.status,
-    errorCode: extra.errorCode,
-    promptTokens: extra.usage.promptTokens,
-    completionTokens: extra.usage.completionTokens,
-    totalTokens: extra.usage.totalTokens,
-    estimated: extra.estimated,
-    latencyMs: Date.now() - ctx.startedAt,
-    upstreamLatencyMs: ctx.upstreamLatencyMs,
-    createdAt: Date.now(),
-  };
-}
-
-function resolveUsage(
-  kind: EndpointKind,
-  observed: TokenUsage | null,
-  promptEstimate: number,
-  completionText: string,
-): { usage: TokenUsage; estimated: boolean } {
-  if (observed) return { usage: observed, estimated: false };
-  if (kind !== "chat" && kind !== "responses")
-    return { usage: EMPTY_USAGE, estimated: false };
-  const completionTokens = estimateTokens(completionText);
-  return {
-    usage: {
-      promptTokens: promptEstimate,
-      completionTokens,
-      totalTokens: promptEstimate + completionTokens,
-    },
-    estimated: true,
-  };
+  upstreamId: string,
+): { model: ModelRow; provider: ProviderRow } | null {
+  const rows = db
+    .select({ model: models, provider: providers })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id))
+    .where(
+      and(
+        eq(models.upstreamId, upstreamId),
+        eq(models.enabled, true),
+        eq(models.upstreamAvailable, true),
+        eq(providers.kind, "opencode"),
+        eq(providers.enabled, true),
+      ),
+    )
+    .orderBy(asc(models.id))
+    .all();
+  return rows[0] ?? null;
 }
 
 export async function handleProxy(
@@ -457,19 +309,34 @@ export async function handleProxy(
     payload && typeof payload.model === "string" ? payload.model : null;
 
   if (requestedModel) {
-    const row = db
+    let row = db
       .select()
       .from(models)
       .where(eq(models.publicId, requestedModel))
       .get();
-    if (!row || !row.enabled || !row.upstreamAvailable)
-      return modelNotFound(requestedModel);
-    const providerRow = db
-      .select()
-      .from(providers)
-      .where(eq(providers.id, row.providerId))
-      .get();
-    if (!providerRow) return modelNotFound(requestedModel);
+    let providerRow =
+      row && row.enabled && row.upstreamAvailable
+        ? db
+            .select()
+            .from(providers)
+            .where(eq(providers.id, row.providerId))
+            .get()
+        : undefined;
+    if (!row || !row.enabled || !row.upstreamAvailable || !providerRow) {
+      // A family shorthand (`mimo`, `deepseek`) selects the synced free model
+      // of that family, so a client can name a provider family, not an id.
+      let alias = ctx.opencode.resolveModelAlias(requestedModel);
+      if (alias === null) {
+        // A cold start has no catalog yet; one cached load makes the shorthand
+        // work on the first request instead of after the first sync.
+        await ctx.opencode.loadCatalog();
+        alias = ctx.opencode.resolveModelAlias(requestedModel);
+      }
+      const match = alias === null ? null : findOpenCodeModel(db, alias);
+      if (!match) return modelNotFound(requestedModel);
+      row = match.model;
+      providerRow = match.provider;
+    }
     if (!providerRow.enabled) {
       return jsonError(
         503,
@@ -551,6 +418,25 @@ export async function handleProxy(
     estimatedPromptTokens,
   );
 
+  // An OpenCode free provider has no key pool: it reproduces the CLI's request
+  // shape instead, and the rest of this function stays the openai path.
+  if (provider.kind === "opencode")
+    return handleOpenCodeRequest(req, {
+      db,
+      opencode: ctx.opencode,
+      requestId,
+      clientKey,
+      provider,
+      model,
+      pathname,
+      method: req.method,
+      kind,
+      startedAt,
+      limitHeaders,
+      estimatedPromptTokens,
+      payload,
+    });
+
   const pool = selectCandidates(db, provider.id, startedAt, busyKeys);
   if (!pool.hasEnabledKeys) {
     return jsonError(
@@ -605,7 +491,7 @@ export async function handleProxy(
     : bodyBase;
 
   const upstream = upstreamUrl(provider.baseUrl, pathname, url.search);
-  const extraHeaders = parseExtraHeaders(provider.extraHeaders);
+  const extraHeaders = parseStoredExtraHeaders(provider.extraHeaders);
 
   let lastFailure: {
     status: number;
@@ -909,64 +795,6 @@ export async function handleProxy(
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 const MAX_UPSTREAM_BODY_BYTES = 32 * 1024 * 1024;
 
-function concatChunks(
-  chunks: Uint8Array[],
-  total: number,
-): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
-
-/**
- * Reads a response body while enforcing a byte cap, so a hostile or broken
- * upstream cannot make the proxy buffer without bound.
- */
-async function readBodyCapped(
-  response: Response,
-  cap: number,
-): Promise<{ bytes: Uint8Array<ArrayBuffer>; truncated: boolean }> {
-  const declared = Number(response.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > cap) {
-    await response.body?.cancel().catch(() => undefined);
-    return { bytes: new Uint8Array(0), truncated: true };
-  }
-  if (!response.body) return { bytes: new Uint8Array(0), truncated: false };
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > cap) {
-        await reader.cancel().catch(() => undefined);
-        return {
-          bytes: concatChunks(chunks, total - value.byteLength),
-          truncated: true,
-        };
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return { bytes: concatChunks(chunks, total), truncated: false };
-}
-
-function parseJsonBytes(bytes: Uint8Array): unknown {
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return null;
-  }
-}
-
 type StreamOptions = {
   injectedUsage: boolean;
   clientWantedUsage: boolean;
@@ -974,17 +802,6 @@ type StreamOptions = {
   clientSignal: AbortSignal;
   onLogged: () => void;
 };
-
-function streamErrorEvent(message: string): string {
-  return `data: ${JSON.stringify({
-    error: {
-      message,
-      type: "api_error",
-      param: null,
-      code: "stream_error",
-    },
-  })}\n\n`;
-}
 
 function streamResponse(
   response: Response,
@@ -1084,12 +901,13 @@ function streamResponse(
             error instanceof Error ? error.message : String(error);
           // The key delivered headers but broke the body, so it deserves the
           // same cooldown as a failed connection.
-          recordKeyFailure(
-            ctx.db,
-            ctx.providerKeyId,
-            networkFailure(),
-            `Upstream stream failed: ${message}`,
-          );
+          if (ctx.providerKeyId !== null)
+            recordKeyFailure(
+              ctx.db,
+              ctx.providerKeyId,
+              networkFailure(),
+              `Upstream stream failed: ${message}`,
+            );
           if (sse) {
             // Ending the response with a reset makes clients report a
             // transport-level ECONNRESET. An in-band error event tells them
@@ -1127,15 +945,6 @@ function streamResponse(
       ctx.limitHeaders,
     ),
   });
-}
-
-function isAbort(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  // Match the abort type, never substrings of the message: Bun reports an
-  // upstream reset as `ECONNRESET: The socket connection was closed
-  // unexpectedly`, which is a network failure, not a client abort.
-  if ("name" in error && error.name === "AbortError") return true;
-  return "code" in error && error.code === "ABORT_ERR";
 }
 
 type FailedAttemptSummary = {

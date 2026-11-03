@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -12,6 +13,8 @@ export const providers = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     name: text("name").notNull(),
+    /** `openai` (key-pool upstream) or `opencode` (free tier, no API key). */
+    kind: text("kind").notNull().default("openai"),
     baseUrl: text("base_url").notNull(),
     extraHeaders: text("extra_headers"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -46,6 +49,37 @@ export const providerKeys = sqliteTable(
       table.enabled,
     ),
   ],
+);
+
+/**
+ * Where an OpenCode provider's requests leave from. `entries` is a JSON array of
+ * `{ id, label, url, enabled, weight }`; an empty `url` is the direct entry.
+ */
+export const providerEgress = sqliteTable("provider_egress", {
+  providerId: integer("provider_id")
+    .primaryKey()
+    .references(() => providers.id, { onDelete: "cascade" }),
+  strategy: text("strategy").notNull().default("round-robin"),
+  entries: text("entries").notNull().default("[]"),
+  relayUrl: text("relay_url"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** Cooldown bookkeeping per egress entry, keyed by a hash of the proxy URL. */
+export const egressHealth = sqliteTable(
+  "egress_health",
+  {
+    providerId: integer("provider_id")
+      .notNull()
+      .references(() => providers.id, { onDelete: "cascade" }),
+    egressKey: text("egress_key").notNull(),
+    failures: integer("failures").notNull().default(0),
+    cooldownUntil: integer("cooldown_until").notNull().default(0),
+    lastError: text("last_error"),
+    lastOkAt: integer("last_ok_at"),
+    lastUsedAt: integer("last_used_at"),
+  },
+  (table) => [primaryKey({ columns: [table.providerId, table.egressKey] })],
 );
 
 export const models = sqliteTable(
@@ -165,5 +199,7 @@ export type ClientKeyRow = typeof clientKeys.$inferSelect;
 export type ClientKeyInsert = typeof clientKeys.$inferInsert;
 export type UsageLogRow = typeof usageLogs.$inferSelect;
 export type UsageLogInsert = typeof usageLogs.$inferInsert;
+export type ProviderEgressRow = typeof providerEgress.$inferSelect;
+export type EgressHealthRow = typeof egressHealth.$inferSelect;
 
 export { sql };

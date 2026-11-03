@@ -28,6 +28,13 @@ import {
   updateClientKey,
 } from "./client-keys.ts";
 import { listUsage } from "./usage.ts";
+import {
+  getEgress,
+  refreshIdentity,
+  saveEgress,
+  testEgress,
+} from "./opencode.ts";
+import type { OpenCodeRuntime } from "../proxy/opencode/runtime.ts";
 import { invalidateStatsCache } from "../stats.ts";
 
 type Handler = (ctx: AdminCtx) => Response | Promise<Response>;
@@ -70,6 +77,26 @@ const routes: Route[] = [
     method: "POST",
     pattern: /^\/api\/admin\/providers\/(\d+)\/keys$/,
     handler: createProviderKey,
+  },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/providers\/(\d+)\/egress$/,
+    handler: getEgress,
+  },
+  {
+    method: "PUT",
+    pattern: /^\/api\/admin\/providers\/(\d+)\/egress$/,
+    handler: saveEgress,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/providers\/(\d+)\/egress\/test$/,
+    handler: testEgress,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/providers\/(\d+)\/opencode\/refresh$/,
+    handler: refreshIdentity,
   },
   {
     method: "POST",
@@ -140,6 +167,7 @@ export async function handleAdmin(
   url: URL,
   db: AppDb,
   adminToken: string,
+  opencode: OpenCodeRuntime,
 ): Promise<Response> {
   const auth = assertAdmin(req, adminToken);
   if (!auth.ok) return auth.response;
@@ -153,6 +181,7 @@ export async function handleAdmin(
       req,
       url,
       db,
+      opencode,
       params: match.slice(1),
       now: Date.now(),
     };

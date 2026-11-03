@@ -8,6 +8,7 @@ const { server } = createApp({
   dbPath: config.dbPath,
   adminToken: config.adminToken,
   development: config.development,
+  opencode: config.opencode,
 });
 
 console.log(`Server running at ${server.url}`);

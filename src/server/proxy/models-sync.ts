@@ -12,6 +12,7 @@ import type {
   SyncField,
   SyncPreview,
 } from "../../shared/types.ts";
+import type { OpenCodeRuntime } from "./opencode/runtime.ts";
 import {
   classifyHttpFailure,
   networkFailure,
@@ -111,7 +112,18 @@ export async function fetchUpstreamModels(
   provider: ProviderRow,
   db: AppDb,
   now = Date.now(),
+  opencode?: OpenCodeRuntime,
 ): Promise<UpstreamModel[]> {
+  // The free tier has no keys to rotate and no `/v1/models` of its own: the
+  // model list is the catalog the CLI reads at boot.
+  if (provider.kind === "opencode" && opencode) {
+    try {
+      return await opencode.freeModels(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new HttpError(502, `OpenCode catalog is unreachable: ${message}`);
+    }
+  }
   const pool = selectCandidates(db, provider.id, now);
   if (!pool.hasEnabledKeys) {
     throw new HttpError(

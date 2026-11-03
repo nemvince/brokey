@@ -74,6 +74,22 @@ export async function createModel(ctx: AdminCtx): Promise<Response> {
   }
   const provider = findProvider(ctx.db, providerId);
   const upstreamId = validateUpstreamId(body.upstreamId);
+  if (provider.kind === "opencode") {
+    // The catalog is the authority on what the free tier serves; a model it
+    // does not list is allowed (the fetch may simply have failed).
+    await ctx.opencode.loadCatalog();
+    const verdict = ctx.opencode.verdict(upstreamId);
+    if (verdict === "deprecated")
+      throw new HttpError(
+        404,
+        `Model "${upstreamId}" has been retired upstream.`,
+      );
+    if (verdict === "paid")
+      throw new HttpError(
+        400,
+        `Model "${upstreamId}" is not on the OpenCode free tier.`,
+      );
+  }
 
   const requestedPublicId = asOptionalString(body.publicId, "publicId", {
     min: 1,
@@ -209,7 +225,12 @@ export function deleteModel(ctx: AdminCtx): Response {
 
 export async function fetchModels(ctx: AdminCtx): Promise<Response> {
   const provider = findProvider(ctx.db, Number(ctx.params[0]));
-  const upstream = await fetchUpstreamModels(provider, ctx.db, ctx.now);
+  const upstream = await fetchUpstreamModels(
+    provider,
+    ctx.db,
+    ctx.now,
+    ctx.opencode,
+  );
   return json(buildPreview(ctx.db, provider, upstream, ctx.now));
 }
 
@@ -304,7 +325,12 @@ function parseApplyBody(body: unknown): SyncApplyBody {
 export async function applyModels(ctx: AdminCtx): Promise<Response> {
   const provider = findProvider(ctx.db, Number(ctx.params[0]));
   const body = parseApplyBody(await readJson(ctx.req));
-  const upstream = await fetchUpstreamModels(provider, ctx.db, ctx.now);
+  const upstream = await fetchUpstreamModels(
+    provider,
+    ctx.db,
+    ctx.now,
+    ctx.opencode,
+  );
   applySync(ctx.db, provider, body, upstream, ctx.now);
-  return json(getProviderDetail(ctx.db, provider.id, ctx.now));
+  return json(getProviderDetail(ctx.db, provider.id, ctx.now, ctx.opencode));
 }
