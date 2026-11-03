@@ -18,6 +18,7 @@ import {
   Table,
 } from "../components/ui.tsx";
 import { ModelDialog } from "../components/ModelDialog.tsx";
+import { OpenCodePanels } from "../components/OpenCodePanels.tsx";
 import { SyncPreviewDialog } from "../components/SyncPreviewDialog.tsx";
 
 function StatusBadge(props: { providerKey: ProviderKeyDTO; now: number }) {
@@ -119,7 +120,11 @@ function SettingsForm(props: {
         </Field>
         <Field
           label="Base URL"
-          hint="Include the API version prefix, e.g. https://api.openai.com/v1"
+          hint={
+            props.detail.kind === "opencode"
+              ? "OpenCode free: fallback only; the live endpoint comes from the OpenCode catalog"
+              : "Include the API version prefix, e.g. https://api.openai.com/v1"
+          }
         >
           <input
             className="input mono"
@@ -188,7 +193,11 @@ export function ProviderDetailPage(props: { providerId: number }) {
 
   useEffect(load, [props.providerId]);
 
-  const cooling = detail?.keys.some((key) => key.status === "cooling") ?? false;
+  const cooling =
+    (detail?.keys.some((key) => key.status === "cooling") ?? false) ||
+    (detail?.opencode !== undefined &&
+      (detail.opencode.gate.status === "throttled" ||
+        detail.opencode.egress.entries.some((entry) => entry.cooling)));
   useEffect(() => {
     if (!cooling) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -207,6 +216,8 @@ export function ProviderDetailPage(props: { providerId: number }) {
   }
 
   if (!detail) return <p className="muted small">Loading provider…</p>;
+
+  const isOpenCode = detail.kind === "opencode";
 
   const addKey = () => {
     setKeyError(null);
@@ -327,92 +338,105 @@ export function ProviderDetailPage(props: { providerId: number }) {
 
       <SettingsForm detail={detail} onSaved={load} />
 
-      <section className="panel" style={{ padding: 0 }}>
-        <div className="panel-head" style={{ padding: "14px 16px 0" }}>
-          <h2>API keys</h2>
-          <span className="spacer" />
-          <Button
-            size="small"
-            onClick={() => {
-              setAddingKey(true);
-              setKeyError(null);
-            }}
+      {isOpenCode ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>API keys</h2>
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>
+            OpenCode free tier needs no API key.
+          </p>
+        </section>
+      ) : (
+        <section className="panel" style={{ padding: 0 }}>
+          <div className="panel-head" style={{ padding: "14px 16px 0" }}>
+            <h2>API keys</h2>
+            <span className="spacer" />
+            <Button
+              size="small"
+              onClick={() => {
+                setAddingKey(true);
+                setKeyError(null);
+              }}
+            >
+              Add key
+            </Button>
+          </div>
+          <Table
+            columns={[
+              { key: "label", label: "Label" },
+              { key: "preview", label: "Key" },
+              { key: "status", label: "Status" },
+              { key: "used", label: "Last used" },
+              { key: "error", label: "Last error" },
+              { key: "actions", label: "" },
+            ]}
+            stack
+            empty={
+              detail.keys.length === 0
+                ? "No API keys yet. Requests fail until you add one."
+                : null
+            }
           >
-            Add key
-          </Button>
-        </div>
-        <Table
-          columns={[
-            { key: "label", label: "Label" },
-            { key: "preview", label: "Key" },
-            { key: "status", label: "Status" },
-            { key: "used", label: "Last used" },
-            { key: "error", label: "Last error" },
-            { key: "actions", label: "" },
-          ]}
-          stack
-          empty={
-            detail.keys.length === 0
-              ? "No API keys yet. Requests fail until you add one."
-              : null
-          }
-        >
-          {detail.keys.map((key) => (
-            <tr key={key.id}>
-              <td data-label="Label">{key.label}</td>
-              <td data-label="Key" className="mono small">
-                {key.keyPreview}
-              </td>
-              <td data-label="Status">
-                <StatusBadge providerKey={key} now={now} />
-              </td>
-              <td data-label="Last used" className="small muted">
-                {formatAgo(key.lastUsedAt)}
-              </td>
-              <td
-                data-label="Last error"
-                className="small"
-                style={{ maxWidth: 260, whiteSpace: "normal" }}
-              >
-                {key.lastError ? (
-                  <span className="muted" title={key.lastError}>
-                    {key.lastError.slice(0, 90)}
-                    {key.lastError.length > 90 ? "…" : ""}
+            {detail.keys.map((key) => (
+              <tr key={key.id}>
+                <td data-label="Label">{key.label}</td>
+                <td data-label="Key" className="mono small">
+                  {key.keyPreview}
+                </td>
+                <td data-label="Status">
+                  <StatusBadge providerKey={key} now={now} />
+                </td>
+                <td data-label="Last used" className="small muted">
+                  {formatAgo(key.lastUsedAt)}
+                </td>
+                <td
+                  data-label="Last error"
+                  className="small"
+                  style={{ maxWidth: 260, whiteSpace: "normal" }}
+                >
+                  {key.lastError ? (
+                    <span className="muted" title={key.lastError}>
+                      {key.lastError.slice(0, 90)}
+                      {key.lastError.length > 90 ? "…" : ""}
+                    </span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
+                <td>
+                  <span className="row-actions">
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        patchKey(
+                          key,
+                          { enabled: !key.enabled },
+                          key.enabled ? "Key disabled." : "Key enabled.",
+                        )
+                      }
+                    >
+                      {key.enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <Button size="small" onClick={() => resetKey(key)}>
+                      Reset
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="danger"
+                      onClick={() => deleteKey(key)}
+                    >
+                      Delete
+                    </Button>
                   </span>
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </td>
-              <td>
-                <span className="row-actions">
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      patchKey(
-                        key,
-                        { enabled: !key.enabled },
-                        key.enabled ? "Key disabled." : "Key enabled.",
-                      )
-                    }
-                  >
-                    {key.enabled ? "Disable" : "Enable"}
-                  </Button>
-                  <Button size="small" onClick={() => resetKey(key)}>
-                    Reset
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="danger"
-                    onClick={() => deleteKey(key)}
-                  >
-                    Delete
-                  </Button>
-                </span>
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </section>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+      )}
+
+      {isOpenCode ? <OpenCodePanels detail={detail} onChanged={load} /> : null}
 
       <section className="panel" style={{ padding: 0 }}>
         <div className="panel-head" style={{ padding: "14px 16px 0" }}>

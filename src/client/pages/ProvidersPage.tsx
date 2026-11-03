@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ProviderDTO } from "../../shared/types.ts";
+import type { ProviderDTO, ProviderKind } from "../../shared/types.ts";
 import { adminFetch } from "../api.ts";
 import { navigate } from "../router.tsx";
 import {
@@ -15,6 +15,7 @@ import {
 
 type Draft = {
   name: string;
+  kind: ProviderKind;
   baseUrl: string;
   extraHeaders: string;
   enabled: boolean;
@@ -22,6 +23,7 @@ type Draft = {
 
 const EMPTY_DRAFT: Draft = {
   name: "",
+  kind: "openai",
   baseUrl: "",
   extraHeaders: "",
   enabled: true,
@@ -77,7 +79,12 @@ export function ProvidersPage() {
       method: "POST",
       body: JSON.stringify({
         name: draft.name,
-        baseUrl: draft.baseUrl,
+        kind: draft.kind,
+        // An OpenCode provider derives its endpoint from the catalog, so an
+        // empty field means "use the shipped fallback".
+        ...(draft.kind === "opencode" && draft.baseUrl.trim() === ""
+          ? {}
+          : { baseUrl: draft.baseUrl }),
         extraHeaders: parsedHeaders,
         enabled: draft.enabled,
       }),
@@ -161,7 +168,10 @@ export function ProvidersPage() {
                 }}
               >
                 {provider.name}
-              </a>
+              </a>{" "}
+              <Badge tone={provider.kind === "opencode" ? "muted" : "ok"}>
+                {provider.kind === "opencode" ? "opencode free" : "openai"}
+              </Badge>
             </td>
             <td data-label="Base URL" className="mono small">
               {provider.baseUrl}
@@ -172,21 +182,25 @@ export function ProvidersPage() {
               </Badge>
             </td>
             <td data-label="Keys">
-              <span className="small">
-                {provider.keyCount === 0
-                  ? "none"
-                  : `${provider.keyCount} total`}{" "}
-                <span className="muted">
-                  ({provider.keyStatusCounts.active} active
-                  {provider.keyStatusCounts.cooling > 0
-                    ? `, ${provider.keyStatusCounts.cooling} cooling`
-                    : ""}
-                  {provider.keyStatusCounts.disabled > 0
-                    ? `, ${provider.keyStatusCounts.disabled} disabled`
-                    : ""}
-                  )
+              {provider.kind === "opencode" ? (
+                <span className="small muted">no key (free tier)</span>
+              ) : (
+                <span className="small">
+                  {provider.keyCount === 0
+                    ? "none"
+                    : `${provider.keyCount} total`}{" "}
+                  <span className="muted">
+                    ({provider.keyStatusCounts.active} active
+                    {provider.keyStatusCounts.cooling > 0
+                      ? `, ${provider.keyStatusCounts.cooling} cooling`
+                      : ""}
+                    {provider.keyStatusCounts.disabled > 0
+                      ? `, ${provider.keyStatusCounts.disabled} disabled`
+                      : ""}
+                    )
+                  </span>
                 </span>
-              </span>
+              )}
             </td>
             <td data-label="Models" className="num">
               {provider.modelCount}
@@ -242,14 +256,41 @@ export function ProvidersPage() {
                 placeholder="openai"
               />
             </Field>
-            <Field label="Base URL" hint="Include the API version prefix.">
+            <Field label="Type">
+              <select
+                className="input"
+                value={draft.kind}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    kind:
+                      event.target.value === "opencode" ? "opencode" : "openai",
+                  })
+                }
+              >
+                <option value="openai">OpenAI-compatible</option>
+                <option value="opencode">OpenCode free (no API key)</option>
+              </select>
+            </Field>
+            <Field
+              label="Base URL"
+              hint={
+                draft.kind === "opencode"
+                  ? "OpenCode free: fallback only; the live endpoint comes from the OpenCode catalog"
+                  : "Include the API version prefix."
+              }
+            >
               <input
                 className="input mono"
                 value={draft.baseUrl}
                 onChange={(event) =>
                   setDraft({ ...draft, baseUrl: event.target.value })
                 }
-                placeholder="https://api.openai.com/v1"
+                placeholder={
+                  draft.kind === "opencode"
+                    ? "optional — https://opencode.ai/inference/openai/v1"
+                    : "https://api.openai.com/v1"
+                }
               />
             </Field>
             <Field
