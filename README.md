@@ -1,11 +1,40 @@
 # brokey
 
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+
+Self-hosted OpenAI-compatible proxy with provider key failover, scoped client keys and public stats.
+
 A self-hosted, OpenAI-compatible proxy. You define providers and their upstream
 model catalogs, attach several API keys per provider with automatic failover when
 one is rate-limited or exhausted, and issue client keys with request/token limits.
 Every proxied call is logged, and the front page is a public statistics dashboard.
 
-## Setup
+## Table of Contents
+
+- [Background](#background)
+- [Install](#install)
+- [Usage](#usage)
+- [OpenCode free providers](#opencode-free-providers)
+- [Statistics](#statistics)
+- [Building a single binary](#building-a-single-binary)
+- [Docker](#docker)
+- [Development](#development)
+- [Maintainers](#maintainers)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Background
+
+One key against one provider is a single point of failure: a rate limit, a
+revoked key or an exhausted quota takes every client down at once. brokey puts a
+pool in front of the upstreams instead — several keys per provider, cooling down
+individually, with the request re-tried on the next one.
+
+The rest follows from wanting that to be operable by one person: a single
+process, a single SQLite file, a single binary, and a public dashboard that
+proves it is alive without leaking anything about who used it.
+
+## Install
 
 ```bash
 bun install
@@ -38,7 +67,7 @@ Production: `bun run start`, or a single binary (below). The working database
 lives in `data/`, which is gitignored — that file is the security boundary, since
 provider secrets are stored in it in plaintext.
 
-## Using the proxy
+## Usage
 
 1. Open `http://localhost:3000/admin` and sign in with `ADMIN_TOKEN`.
 2. **Providers** → _Add provider_. `baseUrl` must include the API version prefix,
@@ -208,3 +237,18 @@ bun test
 
 Single Bun process only: limit checks and key cooldowns are not coordinated
 across processes, so do not point two instances at one database file.
+
+## Maintainers
+
+- Tamás Vince ([@nemvince](https://github.com/nemvince))
+
+## Contributing
+
+Questions and bug reports go to the [issue
+tracker](https://github.com/nemvince/brokey/issues). Pull requests are welcome —
+run `bun run typecheck`, `bun run fmt` and `bun test` before opening one.
+
+## License
+
+UNLICENSED — this repository carries no license file, so all rights are
+reserved. © Tamás Vince.
